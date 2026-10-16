@@ -1,0 +1,24 @@
+{
+  "scope": "Supplemental DEV hooks; win is accelerated, NOT a natural playthrough",
+  "webgl": {
+    "calls": 180,
+    "triangles": 2282,
+    "context": "WebGL 2.0 (OpenGL ES 3.0 Chromium)"
+  },
+  "consoleErrors": [],
+  "checks": [
+    "desktop render",
+    "locked level",
+    "pause freeze",
+    "raycast prop grab/throw",
+    "protected dog penalty",
+    "real mouse punch",
+    "impact capture",
+    "accelerated win/save",
+    "retry full HP",
+    "reload persistence",
+    "level 2",
+    "touch aim + punch + grab/throw",
+    "portrait/landscape render"
+  ]
+}

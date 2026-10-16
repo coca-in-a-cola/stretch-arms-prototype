@@ -1,0 +1,14 @@
+# Dependencies
+node_modules/
+
+# Build artifacts
+dist/
+
+# Development and runner metadata
+.omo/
+*.log
+vite-server.log
+.DS_Store
+
+# Temporary files
+MODEL_SMOKE.txt

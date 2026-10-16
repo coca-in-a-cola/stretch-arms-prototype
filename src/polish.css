@@ -1,0 +1,9 @@
+.settings{position:absolute;top:76px;right:24px;display:flex;gap:10px;align-items:center;pointer-events:auto;z-index:8}
+.settings button{min-height:44px;padding:8px 12px;border:2px solid #202320;border-radius:5px;background:#f4f1e8;font-size:12px;font-weight:700}
+.settings button[aria-pressed=true]{background:#c7f653}
+#settings-note{position:absolute;top:100%;right:0;font-size:12px;background:#f4f1e8}
+.fallback{padding:8vh 7vw;max-width:850px}.fallback h1{font-size:clamp(36px,7vw,74px);letter-spacing:-.04em;line-height:1.1}.fallback p{max-width:600px}
+html[data-reduced-motion=true] *,html[data-reduced-motion=true] *:before,html[data-reduced-motion=true] *:after{animation:none!important;transition:none!important}
+html[data-reduced-motion=true] button:hover,html[data-reduced-motion=true] button:active{transform:none}
+@media(max-width:650px){.settings{top:64px;left:12px;right:12px;gap:8px;justify-content:center}.settings button{padding:6px 9px;font-size:11px}}
+@media(max-height:500px){.settings{top:auto;bottom:10px;left:auto;right:12px}.settings button{font-size:11px;padding:6px 8px}.centerpanel{max-height:calc(100dvh - 80px);overflow-y:auto}#app[data-mode=pause] .settings,#app[data-mode=result] .settings{display:none}}
