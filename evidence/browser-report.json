@@ -1,8 +1,8 @@
 {
   "scope": "Supplemental DEV hooks; win is accelerated, NOT a natural playthrough",
   "webgl": {
-    "calls": 180,
-    "triangles": 2282,
+    "calls": 343,
+    "triangles": 3608,
     "context": "WebGL 2.0 (OpenGL ES 3.0 Chromium)"
   },
   "consoleErrors": [],

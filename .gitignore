@@ -12,3 +12,7 @@ vite-server.log
 
 # Temporary files
 MODEL_SMOKE.txt
+
+# Project-local browser test tooling
+.venv-browser/
+.playwright-browsers/

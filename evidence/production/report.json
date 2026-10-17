@@ -1,5 +1,5 @@
 {
-  "url": "http://127.0.0.1:43517/",
+  "url": "http://127.0.0.1:42901/",
   "mutableHooks": false,
   "consoleErrors": [],
   "flows": [
@@ -21,6 +21,11 @@
     "desktop-win.png",
     "landscape-level2.png",
     "landscape-pause.png",
+    "level1-depth-impact.png",
+    "level1-depth-punch.png",
+    "level2-depth-impact.png",
+    "level2-depth-punch.png",
+    "portrait-depth.png",
     "portrait-level1.png",
     "portrait-level2.png",
     "portrait-menu.png",

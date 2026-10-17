@@ -1,5 +1,4 @@
 import json
-import math
 import os
 import socket
 from contextlib import contextmanager
@@ -30,14 +29,12 @@ def production_url():
         thread.join()
 
 
-def target_point(width: int, height: int, x: float, y: float) -> tuple[float, float]:
-    fov = 58 if width < 650 else 48
-    distance = max(14.5, 8.6 / (2 * math.tan(math.radians(29)) * width / height)) if width < 650 else 10.8
-    tilt = math.atan2(1.3, distance)
-    depth = distance * math.cos(tilt) - (y - 2.8) * math.sin(tilt)
-    up = (y - 2.8) * math.cos(tilt) + distance * math.sin(tilt)
-    focal = height / (2 * math.tan(math.radians(fov / 2)))
-    return width / 2 + x * focal / depth, height / 2 - up * focal / depth
+def clickable_enemy(page: Page) -> tuple[float, float]:
+    """Screen point the game publishes (data-aim) where free-aim would currently strike an exposed enemy."""
+    handle = page.wait_for_function('''()=>{const aim=JSON.parse(document.querySelector("#scene").dataset.aim||"[]");
+        const e=aim.find(t=>t.kind==="enemy"&&t.at);return e?e.at:null}''', timeout=20000)
+    at = handle.json_value()
+    return at['x'], at['y']
 
 
 def assert_production(page: Page) -> None:
@@ -54,11 +51,8 @@ def capture(page: Page, name: str) -> None:
 
 def win_level1(page: Page, width: int, height: int, touch: bool = False) -> None:
     for index in range(9):
-        lane = index % 3
-        label = ['слева', 'в центре', 'справа'][lane]
-        page.wait_for_function('(label)=>document.querySelector("#scene").getAttribute("aria-label").includes("Задиры: "+label)', arg=label, timeout=20000)
         page.wait_for_function('Number(document.querySelector("#stamina").textContent)>=30')
-        x, y = target_point(width, height, [-2.7, 0, 2.7][lane], 1.8 + (index % 2) * .25)
+        x, y = clickable_enemy(page)
         if index == 0:
             capture(page, 'portrait-level1' if touch else 'desktop-level1')
         if touch:
@@ -165,7 +159,7 @@ def main() -> None:
             mp.locator('#select').tap()
             mp.locator('#level2').tap()
             capture(mp, 'portrait-level2')
-            x,y=target_point(390,844,2.6,1.7)
+            x,y=clickable_enemy(mp)
             mp.touchscreen.tap(x,y)
             mp.locator('#punch').tap()
             mp.wait_for_function('document.querySelector("#progress").textContent.includes("/ 1 ИЗ")')

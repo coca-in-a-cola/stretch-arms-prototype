@@ -2,13 +2,16 @@ import { describe, expect, test } from 'bun:test';
 import { Game, readProgress, type Progress } from '../src/game';
 
 describe('deterministic arcade rules', () => {
-  test('street changes sweep order and elevation with shorter warning deadlines', () => {
+  test('street spawns across depth layers with elevation and shorter warning deadlines', () => {
     const g = new Game({version:1,unlocked:2,best:0}); g.start(2); g.spawn(); g.spawn();
     const enemies = g.targets.filter(t=>t.kind==='enemy');
-    expect(enemies.map(t=>[t.x,t.y])).toEqual([[2.6,1.7],[-2.6,2.6],[0,2.1]]);
+    expect(enemies.map(t=>t.layer)).toEqual(['foreground','background','foreground']);
+    expect(enemies[1].y).toBeGreaterThan(3); // upper-floor window
+    expect(new Set(enemies.map(t=>t.z)).size).toBe(3);
     expect(enemies.every(t=>t.deadline===4.6)).toBe(true);
-    g.spawn(); expect(g.targets.filter(t=>t.kind==='enemy')).toHaveLength(3);
-    g.start(1); expect(g.targets[0].x).toBe(-2.7); expect(g.targets[0].y).toBe(1.8);
+    g.start(1); expect(g.targets[0].layer).toBe('foreground'); expect(g.targets[0].slot).toBe(0);
+    for (let i=0;i<2;i++) g.spawn();
+    expect(g.targets.filter(t=>t.kind==='enemy').map(t=>t.layer)).toEqual(['foreground','midground','background']);
   });
   test('fresh run and locked second level', () => {
     const g = new Game(); expect(g.start(2)).toBe(false); expect(g.start(1)).toBe(true);

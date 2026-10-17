@@ -29,10 +29,13 @@ async def main():
         await page.wait_for_timeout(400)
         assert before == await page.evaluate('JSON.stringify({hp:__game.hp,stamina:__game.stamina,time:__game.elapsed})')
         await page.evaluate('window.__game.pause()')
-        async def hit(kind, button='left'):
-            target = await page.evaluate('(kind)=>{const t=__game.targets.find(t=>t.kind===kind);return t?__test.project(t.id):null}',kind)
-            assert target, kind
-            await page.mouse.click(target['x'],target['y'],button=button)
+        async def hit(kind, button='left', pg=None):
+            pg = pg or page
+            handle = await pg.wait_for_function('(kind)=>{const t=__game.targets.find(t=>t.kind===kind&&t.age>.5);return t?__test.project(t.id):null}',arg=kind)
+            target = await handle.json_value()
+            before = await pg.evaluate('__test.strikes().length')
+            await pg.mouse.click(target['x'],target['y'],button=button)
+            await pg.wait_for_function('(n)=>__test.strikes().length>n',arg=before)
         await hit('bottle','right')
         assert await page.evaluate('__game.held') == 'bottle'
         await hit('enemy','right')
@@ -42,8 +45,7 @@ async def main():
         assert await page.evaluate('__game.hp') == 4
         await page.evaluate('__game.stamina=100;__game.spawn()')
         await page.evaluate('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))')
-        target = await page.evaluate('__test.project(__game.targets.find(t=>t.kind==="enemy").id)')
-        await page.mouse.click(target['x'],target['y'])
+        await hit('enemy')
         assert await page.evaluate('__game.defeated') == 2, await page.evaluate('({message:__game.message,stamina:__game.stamina,hp:__game.hp,targets:__game.targets})')
         await page.wait_for_timeout(90)
         await page.screenshot(path=str(OUT/'desktop-impact.png'))
@@ -73,17 +75,20 @@ async def main():
         await mp.screenshot(path=str(OUT/'mobile-menu.png'))
         await mp.get_by_role('button',name='ВО ДВОР').tap()
         await mp.locator('#level1').tap()
-        t=await mp.evaluate('__test.project(__game.targets.find(t=>t.kind==="enemy").id)')
+        t=await (await mp.wait_for_function('(()=>{const t=__game.targets.find(t=>t.kind==="enemy"&&t.age>.5);return t?__test.project(t.id):null})()')).json_value()
         await mp.touchscreen.tap(t['x'],t['y'])
         await mp.locator('#punch').tap()
+        await mp.wait_for_function('__test.strikes().length>0')
         assert await mp.evaluate('__game.defeated') == 1
         await mp.evaluate('__game.stamina=100;__game.spawn()')
         await mp.evaluate('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))')
         await mp.screenshot(path=str(OUT/'mobile-play.png'))
         for kind in ['bottle','enemy']:
-            t=await mp.evaluate('(kind)=>__test.project(__game.targets.find(t=>t.kind===kind).id)',kind)
+            t=await (await mp.wait_for_function('(kind)=>{const t=__game.targets.find(t=>t.kind===kind&&t.age>.5);return t?__test.project(t.id):null}',arg=kind)).json_value()
+            n=await mp.evaluate('__test.strikes().length')
             await mp.touchscreen.tap(t['x'],t['y'])
             await mp.locator('#grab').tap()
+            await mp.wait_for_function('(n)=>__test.strikes().length>n',arg=n)
         assert await mp.evaluate('__game.defeated') == 2
         assert await mp.evaluate('__game.held') is None
         await mp.set_viewport_size({'width':844,'height':390})

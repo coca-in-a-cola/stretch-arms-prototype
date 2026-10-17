@@ -1,0 +1,13 @@
+{
+  "url": "http://127.0.0.1:5174/",
+  "consoleErrors": [],
+  "checks": [
+    "click (547,478) hit mid-ground enemy #4",
+    "click (429,656) on cover barrel-b in front of enemy #1 → cover, enemy alive",
+    "click (476,780) on empty ground → whiff, 24 stamina spent, recoil to phase 1.00",
+    "click (770,530) on halo dog → protected penalty",
+    "level 1: mid-punch + impact screenshots",
+    "level 2: mid-punch + impact screenshots",
+    "portrait tap-aim + punch hits"
+  ]
+}
