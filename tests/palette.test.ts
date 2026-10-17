@@ -76,9 +76,15 @@ describe('colour logic: grey world, colour means interactive', () => {
     for (const hex of Object.values(SLEEVE)) expect(hexSat(hex)).toBeGreaterThan(.4);
   });
 
-  const sprites = readdirSync(join(root, 'public', 'assets')).filter(f => f.endsWith('.png'));
+  const backdrops = ['gen_bar_backdrop.png'];
+  const sprites = readdirSync(join(root, 'public', 'assets')).filter(f => f.endsWith('.png') && !backdrops.includes(f));
   test('every runtime sprite is present', () => {
-    expect(sprites.sort()).toEqual(['bully.png', 'dog_halo.png', 'gen_barrel.png', 'gen_bottle.png', 'gen_cat_hurt.png', 'gen_cat_ko.png', 'gen_cat_windup.png', 'gen_dog_sad.png', 'gen_dog_sit.png', 'gen_dog_walk.png']);
+    expect(sprites.sort()).toEqual(['bully.png', 'dog_halo.png', 'gen_barrel.png', 'gen_bottle.png', 'gen_bulldog.png', 'gen_cat_hurt.png', 'gen_cat_ko.png', 'gen_cat_windup.png', 'gen_dog_sad.png', 'gen_dog_sit.png', 'gen_dog_walk.png', 'gen_hat.png', 'gen_mug.png', 'gen_walrus.png', 'gen_weasel.png', 'gen_whiskey.png']);
+  });
+  for (const f of backdrops) test(`${f}: painted backdrop is pure grey world`, () => {
+    const { px } = readPng(join(root, 'public', 'assets', f));
+    let worst = 0; for (let i = 0; i < px.length; i += 4 * 97) worst = Math.max(worst, saturation(px[i], px[i + 1], px[i + 2]));
+    expect(worst).toBeLessThan(.02);
   });
   for (const f of sprites) test(`${f}: character / interactable sprite keeps its colour`, () => {
     const { px } = readPng(join(root, 'public', 'assets', f));

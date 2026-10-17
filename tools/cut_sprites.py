@@ -33,6 +33,16 @@ JOBS = [
     ('gen_color_gen_dog_poses.jpg', 'gen_dog_sad.png', {'crop': [665, 330, 1020, 770]}),
     ('gen_color_gen_props.jpg', 'gen_barrel.png', {'crop': [50, 85, 360, 500]}),
     ('gen_color_gen_props.jpg', 'gen_bottle.png', {'crop': [790, 75, 970, 510]}),
+    # Level 3 bar (SA-V3-14): one standing pose per patron (no separate pose sheet yet); shared scale.
+    ('gen_bar_patrons.jpg', 'gen_walrus.png', {'crop': [15, 170, 560, 835], 'scale': .93}),
+    ('gen_bar_patrons.jpg', 'gen_bulldog.png', {'crop': [380, 370, 722, 820], 'scale': .93 * 1.2}),
+    ('gen_bar_patrons.jpg', 'gen_weasel.png', {'crop': [688, 285, 1000, 825], 'scale': .93 * 1.08}),
+    # Hero item: the bowler is painted black on the sheet; recoloured violet so it reads as interactive in the grey bar.
+    ('gen_bar_props.jpg', 'gen_hat.png', {'crop': [40, 55, 425, 340], 'tint': [124, 58, 230]}),
+    ('gen_bar_props.jpg', 'gen_mug.png', {'crop': [452, 40, 692, 360], 'hole': 400}),
+    ('gen_bar_props.jpg', 'gen_whiskey.png', {'crop': [792, 30, 922, 365]}),
+    # Backdrop: the B/W bar painting, kept opaque and forced to pure grey (world rule), PNG so no .jpg ships.
+    ('gen_bar_bg.jpg', 'gen_bar_backdrop.png', {'plain': True}),
 ]
 JS = '''async ([src, o]) => {
   const img = new Image(); img.src = src; await img.decode();
@@ -40,6 +50,16 @@ JS = '''async ([src, o]) => {
   const W = cx1 - cx0, H = cy1 - cy0, c = document.createElement('canvas'); c.width = W; c.height = H;
   const g = c.getContext('2d'); g.drawImage(img, cx0, cy0, W, H, 0, 0, W, H);
   const d = g.getImageData(0, 0, W, H), px = d.data, N = W * H;
+  if (o.plain) {
+    for (let i = 0; i < px.length; i += 4) { const y = Math.round(.2126 * px[i] + .7152 * px[i+1] + .0722 * px[i+2]); px[i] = px[i+1] = px[i+2] = y; px[i+3] = 255; }
+    g.putImageData(d, 0, 0);
+    return { url: c.toDataURL('image/png'), crop: [cx0, cy0, cx1, cy1], scale: 1, holes: [], dropped: 0, box: [0, 1, 0, 1] };
+  }
+  if (o.tint) for (let i = 0; i < px.length; i += 4) {
+    // Dark low-saturation paint (not the ink line, not the paper) takes the tint, shaded by its own value.
+    const r = px[i], gg = px[i+1], b = px[i+2], hi = Math.max(r, gg, b), lo = Math.min(r, gg, b), l = (r + gg + b) / 3;
+    if (l > 34 && l < 150 && hi - lo < 30) { const k = .55 + l / 150 * .9; for (let j = 0; j < 3; j++) px[i+j] = Math.min(255, Math.round(o.tint[j] * k)); }
+  }
   const paper = i => { const r = px[i], gg = px[i+1], b = px[i+2]; const lo = Math.min(r, gg, b), hi = Math.max(r, gg, b); return lo > 222 && hi - lo < 26; };
   const bg = new Uint8Array(N);
   const fill = (seeds, mark, test) => { const st = seeds.slice(), out = []; while (st.length) { const p = st.pop(); if (mark[p] || !test(p)) continue; mark[p] = 1; out.push(p); const x = p % W, y = (p / W) | 0;
