@@ -3,19 +3,19 @@
 import type { Hittable, Vec3 } from './aim';
 
 export type Layer = 'foreground' | 'midground' | 'background';
-export type CoverLook = 'barrel' | 'crate' | 'plank' | 'rail' | 'post' | 'wall' | 'interior' | 'dumpster' | 'pallet' | 'van' | 'barrier' | 'standee';
+export type CoverLook = 'barrel' | 'crate' | 'plank' | 'rail' | 'post' | 'wall' | 'interior' | 'dumpster' | 'pallet' | 'van' | 'barrier';
 export interface Cover { id: string; look: CoverLook; layer: Layer; min: Vec3; max: Vec3; color: string; }
-/** Enemy spawn point behind a cover. `hide` is where the card waits fully occluded; it slides/rises to `x,y`. */
+/** Enemy spawn point behind a cover. `hide` is where the sprite waits fully occluded; it slides/rises to `x,y`. */
 export interface Slot { x: number; y: number; z: number; layer: Layer; hideX: number; hideY: number; }
 export interface LevelLayout { covers: Cover[]; slots: Slot[]; order: number[]; dog: Vec3; prop: Vec3; deadline: number; goal: number; }
 
-export const CARD = {
-  enemy: { w: 1.52, h: 1.9, inset: [.2, .8, .03, .93] },
-  dog: { w: 1.1, h: 1.375, inset: [.26, .84, .04, .9] },
+export const BODY = {
+  enemy: { w: 1.52, h: 1.9, inset: [.2, .82, .03, .95] },
+  dog: { w: 1.1, h: 1.375, inset: [.14, .9, .03, .95] },
   bottle: { w: .62, h: .82, inset: [.14, .86, 0, .96] },
   barrel: { w: .7, h: .82, inset: [.1, .9, 0, .96] },
 } as const;
-export type CardKind = keyof typeof CARD;
+export type BodyKind = keyof typeof BODY;
 
 const box = (id: string, look: CoverLook, layer: Layer, cx: number, y0: number, cz: number, w: number, h: number, d: number, color: string): Cover =>
   ({ id, look, layer, color, min: { x: cx - w / 2, y: y0, z: cz - d / 2 }, max: { x: cx + w / 2, y: y0 + h, z: cz + d / 2 } });
@@ -97,26 +97,48 @@ const level2: LevelLayout = {
 export const LEVELS: Record<number, LevelLayout> = { 1: level1, 2: level2 };
 
 export const RISE_TIME = .32;
+/** Peek cycle: after popping up, an enemy ducks back behind cover once or twice, then stays up to wind up. */
+export const DUCKS = [{ at: 1.35, len: .8 }, { at: 3.3, len: .75 }];
+export const WINDUP = .9;
 const ease = (v: number) => 1 - (1 - v) ** 3;
 
-/** Card feet position for a target at a given age. Enemies rise/slide out of hiding; this is the hit pose too. */
-export function pose(level: number, t: { kind: string; slot?: number; x: number; y: number; z?: number; age: number }, motion = true): Vec3 {
+/** 0 = fully hidden behind cover, 1 = fully out. Shared by rendering and hit-testing. */
+export function exposure(age: number, deadline = Infinity, motion = true): number {
+  if (!motion) return 1;
+  let k = ease(Math.min(1, age / RISE_TIME));
+  for (const d of DUCKS) if (age > d.at && age < d.at + d.len && d.at + d.len < deadline - WINDUP) k *= 1 - .62 * Math.sin(Math.PI * (age - d.at) / d.len);
+  return k;
+}
+
+/** Halo dog strolls between two sitting spots. Returns the x offset and whether/which way it is walking. */
+export function dogWalk(age: number, motion = true): { dx: number; walking: boolean; facing: 1 | -1 } {
+  if (!motion) return { dx: 0, walking: false, facing: 1 };
+  const T = 9, ph = age % T, A = -.7, B = .7, smooth = (v: number) => v * v * (3 - 2 * v);
+  if (ph < 3.5) return { dx: A, walking: false, facing: 1 };
+  if (ph < 4.5) return { dx: A + (B - A) * smooth(ph - 3.5), walking: true, facing: 1 };
+  if (ph < 8) return { dx: B, walking: false, facing: -1 };
+  return { dx: B + (A - B) * smooth(ph - 8), walking: true, facing: -1 };
+}
+
+/** Sprite feet position for an actor at a given age. Enemies rise/slide out of hiding; this is the hit pose too. */
+export function pose(level: number, t: { kind: string; slot?: number; x: number; y: number; z?: number; age: number; deadline?: number }, motion = true): Vec3 {
+  if (t.kind === 'dog') return { x: t.x + dogWalk(t.age, motion).dx, y: t.y, z: t.z ?? 0 };
   const slot = t.slot === undefined ? undefined : LEVELS[level].slots[t.slot];
   if (!slot) return { x: t.x, y: t.y, z: t.z ?? 0 };
-  const k = motion ? ease(Math.min(1, t.age / RISE_TIME)) : 1;
+  const k = exposure(t.age, t.deadline, motion);
   return { x: slot.hideX + (slot.x - slot.hideX) * k, y: slot.hideY + (slot.y - slot.hideY) * k, z: slot.z };
 }
 
-export function cardBox(kind: CardKind, at: Vec3): { min: Vec3; max: Vec3 } {
-  const c = CARD[kind]; const [l, r, b, tp] = c.inset;
+export function bodyBox(kind: BodyKind, at: Vec3): { min: Vec3; max: Vec3 } {
+  const c = BODY[kind]; const [l, r, b, tp] = c.inset;
   return { min: { x: at.x - c.w / 2 + c.w * l, y: at.y + c.h * b, z: at.z - .04 }, max: { x: at.x - c.w / 2 + c.w * r, y: at.y + c.h * tp, z: at.z + .04 } };
 }
 
-/** Everything the fist can collide with at this moment: live targets + static covers. */
-export function hittables(level: number, targets: readonly { id: number; kind: CardKind | 'enemy' | 'dog'; slot?: number; x: number; y: number; z?: number; age: number }[], motion = true, scenery: Hittable[] = []): Hittable[] {
+/** Everything the fist can collide with at this moment: live actors + static covers. */
+export function hittables(level: number, actors: readonly { id: number; kind: BodyKind | 'enemy' | 'dog'; slot?: number; x: number; y: number; z?: number; age: number; deadline?: number }[], motion = true, scenery: Hittable[] = []): Hittable[] {
   const out: Hittable[] = LEVELS[level].covers.map(c => ({ id: c.id, kind: 'cover', min: c.min, max: c.max }));
-  for (const t of targets) {
-    const b = cardBox(t.kind, pose(level, t, motion));
+  for (const t of actors) {
+    const b = bodyBox(t.kind, pose(level, t, motion));
     out.push({ id: t.id, kind: t.kind === 'enemy' ? 'enemy' : t.kind === 'dog' ? 'dog' : 'prop', ...b });
   }
   return out.concat(scenery);

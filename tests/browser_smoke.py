@@ -31,10 +31,10 @@ async def main():
         await page.evaluate('window.__game.pause()')
         async def hit(kind, button='left', pg=None):
             pg = pg or page
-            handle = await pg.wait_for_function('(kind)=>{const t=__game.targets.find(t=>t.kind===kind&&t.age>.5);return t?__test.project(t.id):null}',arg=kind)
-            target = await handle.json_value()
+            handle = await pg.wait_for_function('(kind)=>{const t=__game.actors.find(t=>t.kind===kind&&t.age>.5);return t?__test.project(t.id):null}',arg=kind)
+            actor = await handle.json_value()
             before = await pg.evaluate('__test.strikes().length')
-            await pg.mouse.click(target['x'],target['y'],button=button)
+            await pg.mouse.click(actor['x'],actor['y'],button=button)
             await pg.wait_for_function('(n)=>__test.strikes().length>n',arg=before)
         await hit('bottle','right')
         assert await page.evaluate('__game.held') == 'bottle'
@@ -46,13 +46,13 @@ async def main():
         await page.evaluate('__game.stamina=100;__game.spawn()')
         await page.evaluate('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))')
         await hit('enemy')
-        assert await page.evaluate('__game.defeated') == 2, await page.evaluate('({message:__game.message,stamina:__game.stamina,hp:__game.hp,targets:__game.targets})')
+        assert await page.evaluate('__game.defeated') == 2, await page.evaluate('({message:__game.message,stamina:__game.stamina,hp:__game.hp,actors:__game.actors})')
         await page.wait_for_timeout(90)
         await page.screenshot(path=str(OUT/'desktop-impact.png'))
         await page.locator('#pause').click()
         await page.screenshot(path=str(OUT/'desktop-pause.png'))
         await page.locator('#resume').click()
-        await page.evaluate('''() => { while(__game.mode==='play'){__game.stamina=100;if(!__game.targets.some(t=>t.kind==='enemy'))__game.spawn();__game.act('punch',__game.targets.find(t=>t.kind==='enemy').id);} }''')
+        await page.evaluate('''() => { while(__game.mode==='play'){__game.stamina=100;if(!__game.actors.some(t=>t.kind==='enemy'))__game.spawn();__game.act('punch',__game.actors.find(t=>t.kind==='enemy').id);} }''')
         await page.wait_for_timeout(100)
         assert await page.evaluate('__game.won')
         assert json.loads(await page.evaluate('localStorage.getItem("long-arms.progress.v1")'))['unlocked'] == 2
@@ -75,7 +75,7 @@ async def main():
         await mp.screenshot(path=str(OUT/'mobile-menu.png'))
         await mp.get_by_role('button',name='ВО ДВОР').tap()
         await mp.locator('#level1').tap()
-        t=await (await mp.wait_for_function('(()=>{const t=__game.targets.find(t=>t.kind==="enemy"&&t.age>.5);return t?__test.project(t.id):null})()')).json_value()
+        t=await (await mp.wait_for_function('(()=>{const t=__game.actors.find(t=>t.kind==="enemy"&&t.age>.5);return t?__test.project(t.id):null})()')).json_value()
         await mp.touchscreen.tap(t['x'],t['y'])
         await mp.locator('#punch').tap()
         await mp.wait_for_function('__test.strikes().length>0')
@@ -84,7 +84,7 @@ async def main():
         await mp.evaluate('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))')
         await mp.screenshot(path=str(OUT/'mobile-play.png'))
         for kind in ['bottle','enemy']:
-            t=await (await mp.wait_for_function('(kind)=>{const t=__game.targets.find(t=>t.kind===kind&&t.age>.5);return t?__test.project(t.id):null}',arg=kind)).json_value()
+            t=await (await mp.wait_for_function('(kind)=>{const t=__game.actors.find(t=>t.kind===kind&&t.age>.5);return t?__test.project(t.id):null}',arg=kind)).json_value()
             n=await mp.evaluate('__test.strikes().length')
             await mp.touchscreen.tap(t['x'],t['y'])
             await mp.locator('#grab').tap()

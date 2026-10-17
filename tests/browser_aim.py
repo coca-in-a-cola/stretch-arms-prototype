@@ -24,12 +24,12 @@ def strike_at(page: Page, x: float, y: float, button: str = 'left') -> dict:
 
 def settle(page: Page) -> None:
     """Wait until every enemy has finished rising out of cover and the previous swing is over."""
-    page.wait_for_function('__game.targets.filter(t=>t.kind==="enemy").every(t=>t.age>.5) && !__test.swing()', timeout=15000)
+    page.wait_for_function('__game.actors.filter(t=>t.kind==="enemy").every(t=>t.age>.5) && !__test.swing()', timeout=15000)
 
 
 def fresh_level(page: Page, level: int, enemies: int = 3) -> None:
     page.evaluate('(l)=>{__game.progress.unlocked=2;__game.start(l)}', level)
-    page.evaluate('(n)=>{for(let i=1;i<n;i++)__game.spawn();for(const t of __game.targets)t.deadline=t.kind==="enemy"?999:t.deadline}', enemies)
+    page.evaluate('(n)=>{for(let i=1;i<n;i++)__game.spawn();for(const t of __game.actors)t.deadline=t.kind==="enemy"?999:t.deadline}', enemies)
     page.evaluate('__game.stamina=100')
     settle(page)
 
@@ -50,19 +50,19 @@ def main() -> None:
         fresh_level(page, 1)
 
         # 1. Click exactly on an exposed enemy → that enemy is hit.
-        enemy = page.evaluate('__game.targets.find(t=>t.kind==="enemy"&&t.layer==="midground")')
+        enemy = page.evaluate('__game.actors.find(t=>t.kind==="enemy"&&t.layer==="midground")')
         point = page.evaluate('(id)=>__test.project(id)', enemy['id'])
         assert point, 'mid-ground enemy not clickable'
         assert page.evaluate('([x,y])=>__test.shotAt(x,y)', [point['x'], point['y']])['id'] == enemy['id']
         result = strike_at(page, point['x'], point['y'])
         assert result['outcome'] == 'hit' and result['id'] == enemy['id'], result
         assert result['staminaBefore'] - result['staminaAfter'] == 24, result
-        assert not page.evaluate('(id)=>__game.targets.some(t=>t.id===id)', enemy['id'])
+        assert not page.evaluate('(id)=>__game.actors.some(t=>t.id===id)', enemy['id'])
         checks.append(f"click ({point['x']},{point['y']}) hit mid-ground enemy #{enemy['id']}")
 
         # 2. Click on cover in front of an enemy → the cover takes it, the enemy survives.
         settle(page); page.evaluate('__game.stamina=100')
-        fg = page.evaluate('__game.targets.find(t=>t.kind==="enemy"&&t.layer==="foreground")')
+        fg = page.evaluate('__game.actors.find(t=>t.kind==="enemy"&&t.layer==="foreground")')
         samples = page.evaluate('(id)=>__test.samples(id)', fg['id'])
         on_cover = [s for s in samples if s['kind'] == 'cover']
         assert on_cover, ('no part of the foreground enemy is behind cover', samples)
@@ -70,7 +70,7 @@ def main() -> None:
         result = strike_at(page, spot['x'], spot['y'])
         assert result['outcome'] == 'cover' and result['kind'] == 'cover', result
         assert result['staminaBefore'] - result['staminaAfter'] == 24, result
-        assert page.evaluate('(id)=>__game.targets.some(t=>t.id===id)', fg['id']), 'enemy behind cover was hit through it'
+        assert page.evaluate('(id)=>__game.actors.some(t=>t.id===id)', fg['id']), 'enemy behind cover was hit through it'
         checks.append(f"click ({spot['x']},{spot['y']}) on cover {result['id']} in front of enemy #{fg['id']} → cover, enemy alive")
 
         # 3. Empty space → whiff, full stamina spent, full extension + recoil plays.
@@ -89,7 +89,7 @@ def main() -> None:
 
         # 4. Protected dog → penalty.
         settle(page); page.evaluate('__game.stamina=100')
-        dog = page.evaluate('__game.targets.find(t=>t.kind==="dog")')
+        dog = page.evaluate('__game.actors.find(t=>t.kind==="dog")')
         hp = page.evaluate('__game.hp')
         dp = page.evaluate('(id)=>__test.project(id)', dog['id'])
         result = strike_at(page, dp['x'], dp['y'])
@@ -99,8 +99,8 @@ def main() -> None:
         # 5. Evidence: POV arm mid-punch over layered depth, both levels.
         for level in (1, 2):
             fresh_level(page, level)
-            target = page.evaluate('__game.targets.filter(t=>t.kind==="enemy").find(t=>__test.project(t.id))')
-            tp = page.evaluate('(id)=>__test.project(id)', target['id'])
+            actor = page.evaluate('__game.actors.filter(t=>t.kind==="enemy").find(t=>__test.project(t.id))')
+            tp = page.evaluate('(id)=>__test.project(id)', actor['id'])
             page.evaluate('__test.setTimeScale(.12)')
             page.mouse.move(tp['x'], tp['y']); page.mouse.click(tp['x'], tp['y'])
             page.wait_for_function('__test.swing() && __test.swing().phase > .26')
@@ -119,7 +119,7 @@ def main() -> None:
         mp.goto(URL)
         mp.wait_for_function('window.__test')
         fresh_level(mp, 1)
-        t = mp.evaluate('__game.targets.filter(t=>t.kind==="enemy").find(t=>__test.project(t.id))')
+        t = mp.evaluate('__game.actors.filter(t=>t.kind==="enemy").find(t=>__test.project(t.id))')
         tp = mp.evaluate('(id)=>__test.project(id)', t['id'])
         mp.touchscreen.tap(tp['x'], tp['y'])
         mp.locator('#punch').tap()

@@ -21,16 +21,39 @@ export function unlockAudio(){
     if(context.state==='suspended')void context.resume().catch(()=>{audioAvailable=false;});
   } catch { audioAvailable=false; }
 }
-export function sound(kind:'ui'|'hit'|'throw'|'grab'|'miss'){
-  if(muted||document.hidden||context?.state!=='running')return;
-  const now=context.currentTime, oscillator=context.createOscillator(), gain=context.createGain();
-  const frequency={ui:520,hit:130,throw:310,grab:230,miss:90}[kind];
-  oscillator.type=kind==='hit'?'triangle':'sine';
-  oscillator.frequency.setValueAtTime(frequency,now);
-  oscillator.frequency.exponentialRampToValueAtTime(Math.max(40,frequency*.35),now+.12);
-  gain.gain.setValueAtTime(.0001,now);gain.gain.exponentialRampToValueAtTime(.065,now+.008);gain.gain.exponentialRampToValueAtTime(.0001,now+.15);
-  oscillator.connect(gain);gain.connect(context.destination);oscillator.start(now);oscillator.stop(now+.16);
-  oscillator.onended=()=>{oscillator.disconnect();gain.disconnect();};
+export type Sfx='ui'|'hit'|'throw'|'grab'|'miss'|'whoosh'|'ko'|'dog'|'attack'|'cover'|'windup';
+/** Tiny synth voices: [wave, start Hz, end Hz, length s, volume, noise mix]. */
+const VOICES:Record<Sfx,[OscillatorType,number,number,number,number,number][]>={
+  ui:[['sine',520,300,.1,.05,0]],
+  whoosh:[['sine',180,420,.16,.02,.9]],
+  hit:[['triangle',150,48,.16,.09,.5],['square',420,160,.05,.025,0]],
+  throw:[['triangle',300,70,.18,.08,.4]],
+  ko:[['sine',660,1320,.22,.035,0],['sine',990,1980,.22,.02,0]],
+  grab:[['sine',230,380,.1,.06,0]],
+  cover:[['square',110,60,.09,.05,.6]],
+  miss:[['sine',260,90,.2,.03,.5]],
+  dog:[['sine',880,520,.32,.05,0],['sine',700,400,.3,.03,0]],
+  attack:[['sawtooth',90,40,.25,.07,.7]],
+  windup:[['sine',300,520,.18,.025,0]],
+};
+let noise:AudioBuffer|undefined;
+export function sound(kind:Sfx){
+  if(muted||document.hidden||!context||context.state!=='running')return;
+  const ctx=context, now=ctx.currentTime;
+  if(!noise){noise=ctx.createBuffer(1,ctx.sampleRate*.4,ctx.sampleRate);const d=noise.getChannelData(0);for(let i=0;i<d.length;i++)d[i]=Math.random()*2-1;}
+  for(const [type,f0,f1,len,vol,mix] of VOICES[kind]){
+    const gain=ctx.createGain(); gain.connect(ctx.destination);
+    gain.gain.setValueAtTime(.0001,now);gain.gain.exponentialRampToValueAtTime(vol,now+.008);gain.gain.exponentialRampToValueAtTime(.0001,now+len);
+    const osc=ctx.createOscillator(); osc.type=type; osc.frequency.setValueAtTime(f0,now); osc.frequency.exponentialRampToValueAtTime(Math.max(30,f1),now+len*.8);
+    const og=ctx.createGain(); og.gain.value=1-mix*.7; osc.connect(og); og.connect(gain); osc.start(now); osc.stop(now+len+.02);
+    osc.onended=()=>{osc.disconnect();og.disconnect();gain.disconnect();};
+    if(mix>0){
+      const src=ctx.createBufferSource(), filter=ctx.createBiquadFilter(), ng=ctx.createGain(); src.buffer=noise;
+      filter.type='bandpass'; filter.frequency.setValueAtTime(f0*4,now); filter.frequency.exponentialRampToValueAtTime(Math.max(60,f1*4),now+len); ng.gain.value=mix;
+      src.connect(filter); filter.connect(ng); ng.connect(gain); src.start(now); src.stop(now+len);
+      src.onended=()=>{src.disconnect();filter.disconnect();ng.disconnect();};
+    }
+  }
 }
 function save(){
   try {localStorage.setItem(KEY,JSON.stringify({muted,reducedMotion:motionOverride}));}

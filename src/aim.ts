@@ -23,7 +23,7 @@ export const normalize = (v: Vec3): Vec3 => { const l = Math.hypot(v.x, v.y, v.z
 const at = (o: Vec3, d: Vec3, t: number): Vec3 => ({ x: o.x + d.x * t, y: o.y + d.y * t, z: o.z + d.z * t });
 
 /**
- * The front-most hittable along the ray wins: cover in front of an enemy blocks the punch, a nearer target
+ * The front-most hittable along the ray wins: cover in front of an enemy blocks the punch, a nearer actor
  * occludes a farther one. Nothing hit → whiff; the fist still travels to the ground point or full reach.
  */
 export function resolveShot(origin: Vec3, direction: Vec3, hittables: readonly Hittable[]): Shot {

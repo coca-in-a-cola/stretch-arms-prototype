@@ -1,7 +1,7 @@
 import * as THREE from 'three';
-import { Game, readProgress, costOf, type Action, type Kind, type Target, type Outcome } from './game';
+import { Game, readProgress, costOf, type Action, type Kind, type Actor, type Outcome } from './game';
 import { resolveShot, type Hittable, type Shot, type Vec3 } from './aim';
-import { LEVELS, CARD, pose, hittables, cameraFor, type Cover, type CardKind } from './layout';
+import { LEVELS, BODY, WINDUP, pose, dogWalk, hittables, cameraFor, type Cover, type BodyKind } from './layout';
 import './style.css';
 import { makeStreet } from './street';
 import { reducedMotion, unlockAudio, sound, settingsUi, bindSettings } from './preferences';
@@ -26,11 +26,28 @@ scene.background = new THREE.Color('#d7dbd2');
 // Atmospheric perspective: the background layer fades toward the sky colour so depth reads at a glance.
 scene.fog = new THREE.Fog('#d7dbd2', 14, 42);
 const camera = new THREE.PerspectiveCamera(50, 1, .3, 90);
-scene.add(new THREE.HemisphereLight('#fff9e4', '#6f766e', 2.4));
+const hemi = new THREE.HemisphereLight('#fff9e4', '#6f766e', 2.4); scene.add(hemi);
 const sun = new THREE.DirectionalLight('#fff5df', 3.0); sun.position.set(-7, 14, 10); sun.castShadow = true;
 sun.shadow.mapSize.set(2048, 2048); sun.shadow.bias = -.0006; sun.shadow.normalBias = .02;
 sun.shadow.camera.left = -16; sun.shadow.camera.right = 16; sun.shadow.camera.top = 16; sun.shadow.camera.bottom = -16;
 scene.add(sun);
+function skyTexture(stops: [number, string][]) {
+  const c = document.createElement('canvas'); c.width = 4; c.height = 256; const g = c.getContext('2d')!;
+  const grad = g.createLinearGradient(0, 0, 0, 256); for (const [o, col] of stops) grad.addColorStop(o, col);
+  g.fillStyle = grad; g.fillRect(0, 0, 4, 256); const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
+}
+/** Level 1: quiet sunny courtyard. Level 2: noisy alley at dusk — low orange sun, violet haze, neon. */
+const LOOKS = {
+  1: { sky: skyTexture([[0, '#8fcbe0'], [.55, '#e3eed8'], [1, '#f4ecd2']]), fog: '#e2e6d4', near: 16, far: 48, hemi: ['#fff9e4', '#6f766e', 2.4], sun: ['#fff5df', 3.0], sunAt: [-7, 14, 10] },
+  2: { sky: skyTexture([[0, '#21183f'], [.4, '#7a3a6c'], [.72, '#e86f4f'], [1, '#ffbf68']]), fog: '#5d3c62', near: 11, far: 36, hemi: ['#ffb28a', '#2b2445', 1.35], sun: ['#ff9356', 2.6], sunAt: [13, 4.5, 6] },
+} as const;
+const shownLevel = () => game.mode === 'menu' || game.mode === 'select' ? 1 : game.level;
+function applyLook(level: number) {
+  const L = LOOKS[level === 2 ? 2 : 1];
+  scene.background = L.sky; (scene.fog as THREE.Fog).color.set(L.fog); (scene.fog as THREE.Fog).near = L.near; (scene.fog as THREE.Fog).far = L.far;
+  hemi.color.set(L.hemi[0]); hemi.groundColor.set(L.hemi[1]); hemi.intensity = L.hemi[2];
+  sun.color.set(L.sun[0]); sun.intensity = L.sun[1]; sun.position.set(L.sunAt[0], L.sunAt[1], L.sunAt[2]);
+}
 const asset = (name: string) => import.meta.env.BASE_URL + 'assets/' + name;
 
 // -------------------------------------------------------------------------------------------------
@@ -118,7 +135,7 @@ function courtyard() {
     for (let y = 2; y < 8; y += 2.6) for (let z = -8; z < 5; z += 3.2) block(g, .1, 1.5, 1.1, '#59675f', side * 7.47, y, z);
   }
   block(g, 26, 2, .3, '#9da497', 0, 10, -9);
-  // Clothesline across the mid-ground: overlapping laundry cards are a strong parallax cue.
+  // Clothesline across the mid-ground: overlapping laundry sprites are a strong parallax cue.
   block(g, .1, 4.6, .1, '#596358', -6.5, 2.3, -4.5); block(g, .1, 4.6, .1, '#596358', 6.5, 2.3, -4.5);
   const line = new THREE.Mesh(new THREE.CylinderGeometry(.015, .015, 13, 4), solid('#2b2f2b')); line.rotation.z = Math.PI / 2; line.position.set(0, 4.45, -4.5); g.add(line);
   ['#f359a4', '#c7f653', '#f4f1e8', '#6fb6c6', '#f6c453'].forEach((color, i) => {
@@ -145,7 +162,7 @@ for (const level of [1, 2]) {
 }
 
 // -------------------------------------------------------------------------------------------------
-// TARGET CARDS (2D art on depth-placed cards; alpha-tested + depth-written so overlap is exact).
+// LIVING CHARACTERS (2D art on depth-placed sprites; alpha-tested + depth-written so overlap is exact).
 // -------------------------------------------------------------------------------------------------
 function art(kind: Kind | 'sign', level = 1): THREE.CanvasTexture {
   const c = document.createElement('canvas'); c.width = 512; c.height = 640;
@@ -176,12 +193,12 @@ function art(kind: Kind | 'sign', level = 1): THREE.CanvasTexture {
   const texture = new THREE.CanvasTexture(c); texture.colorSpace = THREE.SRGBColorSpace; return texture;
 }
 const loader = new THREE.TextureLoader();
-function cardTexture(file: string, fallback: Kind) {
+function spriteTexture(file: string, fallback: Kind) {
   const tex = art(fallback) as THREE.Texture;
-  loader.load(asset(file), loaded => { tex.image = loaded.image; tex.needsUpdate = true; }, undefined, () => { /* keep procedural card */ });
+  loader.load(asset(file), loaded => { tex.image = loaded.image; tex.needsUpdate = true; }, undefined, () => { /* keep procedural sprite */ });
   return tex;
 }
-const textures: Record<CardKind, THREE.Texture> = { enemy: cardTexture('bully.png', 'enemy'), dog: cardTexture('dog_halo.png', 'dog'), bottle: art('bottle'), barrel: art('barrel') };
+const textures: Record<BodyKind, THREE.Texture> = { enemy: spriteTexture('bully.png', 'enemy'), dog: spriteTexture('dog_halo.png', 'dog'), bottle: art('bottle'), barrel: art('barrel') };
 for (const t of Object.values(textures)) { t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4; }
 signs.push(art('sign'), art('sign', 2));
 const sign = new THREE.Mesh(new THREE.PlaneGeometry(1.6, 1.25), new THREE.MeshBasicMaterial({ map: signs[0], alphaTest: .5 }));
@@ -196,52 +213,144 @@ function ringTexture() {
 const ring = ringTexture();
 const blob = new THREE.MeshBasicMaterial({ color: '#253022', transparent: true, opacity: .28, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
 
-interface CardView { group: THREE.Group; card: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial>; flash: number; }
-const targetGroup = new THREE.Group(); scene.add(targetGroup);
-const views = new Map<number, CardView>();
-const dying: { view: CardView; age: number; spin: number }[] = [];
-const knocked = new Set<number>();
+/** Small inked overlay textures: halo, dizzy stars, sad rain-cloud. */
+function overlayTexture(draw: (g: CanvasRenderingContext2D) => void, w = 256, h = 128) {
+  const c = document.createElement('canvas'); c.width = w; c.height = h; const g = c.getContext('2d')!;
+  g.lineJoin = 'round'; g.lineCap = 'round'; draw(g);
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
+}
+const haloTex = overlayTexture(g => {
+  g.lineWidth = 22; g.strokeStyle = '#3a2f18'; g.beginPath(); g.ellipse(128, 64, 92, 30, 0, 0, Math.PI * 2); g.stroke();
+  g.lineWidth = 13; g.strokeStyle = '#ffe27a'; g.stroke();
+});
+function star(g: CanvasRenderingContext2D, x: number, y: number, r: number) {
+  g.beginPath(); for (let i = 0; i <= 10; i++) { const a = -Math.PI / 2 + i * Math.PI / 5, rr = i % 2 ? r * .45 : r; g.lineTo(x + Math.cos(a) * rr, y + Math.sin(a) * rr); }
+  g.closePath(); g.fillStyle = '#ffe14d'; g.fill(); g.lineWidth = 6; g.strokeStyle = '#1c1d1a'; g.stroke();
+}
+const starsTex = overlayTexture(g => { for (let i = 0; i < 5; i++) { const a = i / 5 * Math.PI * 2; star(g, 128 + Math.cos(a) * 92, 64 + Math.sin(a) * 34, 20); } });
+const cloudTex = overlayTexture(g => {
+  g.strokeStyle = '#1c1d1a'; g.lineWidth = 7; g.fillStyle = '#9aa6b4';
+  g.beginPath(); g.arc(90, 52, 30, Math.PI * .5, Math.PI * 1.6); g.arc(130, 38, 34, Math.PI * 1.05, Math.PI * 1.95); g.arc(172, 54, 28, Math.PI * 1.4, Math.PI * .5); g.closePath(); g.fill(); g.stroke();
+  g.strokeStyle = '#3d7fd6'; g.lineWidth = 6; for (const x of [96, 124, 152, 176]) { g.beginPath(); g.moveTo(x, 92); g.lineTo(x - 6, 116); g.stroke(); }
+});
+function overlay(map: THREE.Texture, w: number, h: number, order = 2) {
+  const s = new THREE.Sprite(new THREE.SpriteMaterial({ map, transparent: true, depthWrite: false }));
+  s.scale.set(w, h, 1); s.renderOrder = order; return s;
+}
 
-function makeView(t: Target): CardView {
-  const c = CARD[t.kind]; const group = new THREE.Group();
+interface ActorView {
+  kind: Kind; group: THREE.Group; body: THREE.Group; sprite: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial>;
+  flash: number; sad: number; facing: number; wound?: boolean; warning?: THREE.Sprite; stars?: THREE.Sprite; halo?: THREE.Sprite; cloud?: THREE.Sprite;
+}
+const actorGroup = new THREE.Group(); scene.add(actorGroup);
+const views = new Map<number, ActorView>();
+/** Views whose actor has left the game state but still plays an exit: knocked out, or lunging in to attack. */
+const leaving: { view: ActorView; age: number; spin: number; how: 'ko' | 'attack' }[] = [];
+const exits = new Map<number, 'ko' | 'attack'>();
+
+function makeView(t: Actor): ActorView {
+  const c = BODY[t.kind]; const group = new THREE.Group(), body = new THREE.Group(); group.add(body);
   const geometry = new THREE.PlaneGeometry(c.w, c.h); geometry.translate(0, c.h / 2, 0);
   const material = new THREE.MeshBasicMaterial({ map: textures[t.kind], alphaTest: .5, side: THREE.DoubleSide });
-  const card = new THREE.Mesh(geometry, material); card.castShadow = true;
-  card.customDepthMaterial = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking, map: textures[t.kind], alphaTest: .5 });
-  group.add(card);
+  const sprite = new THREE.Mesh(geometry, material); sprite.castShadow = true;
+  sprite.customDepthMaterial = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking, map: textures[t.kind], alphaTest: .5 });
+  body.add(sprite);
   if (t.y <= .01) { const shadow = new THREE.Mesh(new THREE.CircleGeometry(c.w * .36, 24), blob); shadow.rotation.x = -Math.PI / 2; shadow.position.y = .035; shadow.scale.y = .45; shadow.renderOrder = 1; group.add(shadow); }
-  if (t.kind === 'enemy') { const warning = new THREE.Sprite(new THREE.SpriteMaterial({ map: ring, depthWrite: false })); warning.position.set(0, c.h + .3, 0); warning.name = 'warning'; group.add(warning); }
-  targetGroup.add(group);
-  const view = { group, card, flash: 0 }; views.set(t.id, view); return view;
+  // Enemies square up toward the middle of the yard; the dog turns with its stroll.
+  const view: ActorView = { kind: t.kind, group, body, sprite, flash: 0, sad: 0, facing: t.kind === 'enemy' && t.x < 0 ? -1 : 1 };
+  if (t.kind === 'enemy') {
+    view.warning = new THREE.Sprite(new THREE.SpriteMaterial({ map: ring, depthWrite: false })); view.warning.position.set(0, c.h + .3, 0); body.add(view.warning);
+    view.stars = overlay(starsTex, 1.1, .55); view.stars.position.set(0, c.h * .97, .05); view.stars.visible = false; body.add(view.stars);
+  }
+  if (t.kind === 'dog') {
+    view.halo = overlay(haloTex, .62, .31); body.add(view.halo);
+    view.cloud = overlay(cloudTex, .8, .4); view.cloud.visible = false; body.add(view.cloud);
+  }
+  actorGroup.add(group); views.set(t.id, view); return view;
 }
-function disposeView(v: CardView) { targetGroup.remove(v.group); v.group.traverse(o => { if (o instanceof THREE.Mesh && o.geometry) o.geometry.dispose(); }); v.card.material.dispose(); }
+function disposeView(v: ActorView) { actorGroup.remove(v.group); v.group.traverse(o => { if (o instanceof THREE.Mesh && o.geometry) o.geometry.dispose(); }); v.sprite.material.dispose(); }
 
-const menuTargets: Target[] = [
-  { id: -1, kind: 'enemy', x: -2.45, y: 0, z: 2.25, age: 1, deadline: 6 },
+const menuActors: Actor[] = [
+  { id: -1, kind: 'enemy', x: -2.45, y: 0, z: 2.25, age: 1, deadline: 60 },
   { id: -2, kind: 'dog', x: .45, y: 0, z: -.85, age: 1, deadline: Infinity },
-  { id: -3, kind: 'enemy', x: .95, y: 0, z: -2.35, age: 1, deadline: 6 },
+  { id: -3, kind: 'enemy', x: .95, y: 0, z: -2.35, age: 1, deadline: 60 },
 ];
-const visibleTargets = () => game.mode === 'menu' || game.mode === 'select' ? menuTargets : game.targets;
+const visibleActors = () => game.mode === 'menu' || game.mode === 'select' ? menuActors : game.actors;
 
-function syncTargets(time: number) {
-  const visible = visibleTargets(); const motion = !reducedMotion();
+/** Rubber-hose acting: idle bounce, peek, wind-up telegraph, hit flash, sad dog. Purely visual — pose() is the hitbox. */
+function syncActors(time: number) {
+  const visible = visibleActors(); const motion = !reducedMotion();
   for (const [id, view] of views) if (!visible.some(t => t.id === id)) {
-    views.delete(id);
-    if (knocked.delete(id) && motion) dying.push({ view, age: 0, spin: Math.random() < .5 ? -1 : 1 }); else disposeView(view);
+    views.delete(id); const how = exits.get(id); exits.delete(id);
+    if (how && motion) leaving.push({ view, age: 0, spin: view.facing, how }); else disposeView(view);
   }
   for (const t of visible) {
-    const view = views.get(t.id) ?? makeView(t);
+    const view = views.get(t.id) ?? makeView(t); const c = BODY[t.kind];
     const p = pose(game.level, t, motion);
     view.group.position.set(p.x, p.y, p.z);
-    const breathe = motion ? Math.sin(t.age * 3.4 + t.id) * .025 : 0;
-    view.card.scale.set(1 - breathe * .5 + view.flash * .12, 1 + breathe - view.flash * .1, 1);
-    view.card.rotation.z = motion ? Math.sin(t.age * 2.2 + t.id) * .02 : 0;
-    view.card.material.color.setRGB(1, 1 - view.flash * .55, 1 - view.flash * .45);
+    const a = motion ? (t.id < 0 ? time : t.age) + t.id * .7 : 0;
+    let sx = 1, sy = 1, rot = 0, lift = 0; const tint = new THREE.Color(1, 1, 1);
+    if (t.kind === 'enemy') {
+      const left = t.deadline - t.age, wind = motion ? THREE.MathUtils.clamp(1 - left / WINDUP, 0, 1) : 0;
+      const bounce = Math.abs(Math.sin(a * 4.2));
+      sx = 1 + (1 - bounce) * .05; sy = 1 - (1 - bounce) * .06 + bounce * .03; lift = bounce * .06; rot = Math.sin(a * 2.1) * .035;
+      if (wind > 0 && !view.wound && t.id > 0) { view.wound = true; sound('windup'); }
+      if (wind > 0) {
+        // Wind-up: rear back, puff up, flush red and tremble — a readable "he's about to swing" beat.
+        const tremble = Math.sin(time * 48) * .02 * wind;
+        rot = -view.facing * .2 * wind + tremble; sx *= 1 + .08 * wind; sy *= 1 + .1 * wind; lift = 0;
+        const pulse = .5 + .5 * Math.sin(time * 18); tint.setRGB(1, 1 - .45 * wind * pulse, 1 - .5 * wind * pulse);
+      }
+      if (view.warning) {
+        const shown = t.id > 0 && left < WINDUP * 1.6;
+        view.warning.visible = shown; view.warning.scale.setScalar(.38 + wind * .3 + (motion ? Math.sin(time * 14) * .03 : 0));
+      }
+      if (view.stars) view.stars.visible = false;
+    } else if (t.kind === 'dog') {
+      const walk = dogWalk(motion ? (t.id < 0 ? time : t.age) : 0, motion); view.facing = -walk.facing;
+      if (walk.walking) { const hop = Math.abs(Math.sin(a * 11)); lift = hop * .09; sy = 1 + hop * .04; rot = Math.sin(a * 11) * .06; }
+      else { const breathe = Math.sin(a * 2.6); sy = 1 + breathe * .025; sx = 1 - breathe * .012; rot = Math.sin(a * .9) * .03; }
+      view.sad = Math.max(0, view.sad - 1 / 60);
+      const sad = Math.min(1, view.sad);
+      if (sad > 0) { sy *= 1 - .12 * sad; sx *= 1 + .05 * sad; rot = Math.sin(time * 20) * .03 * sad; lift = 0; tint.setRGB(1 - .25 * sad, 1 - .15 * sad, 1); }
+      const hx = .1 * view.facing;
+      if (view.halo) {
+        view.halo.position.set(hx, c.h * 1.0 + (motion ? Math.sin(time * 3 + t.id) * .04 : 0) - sad * .12, 0);
+        view.halo.material.rotation = sad * .45 * Math.sin(time * 6); view.halo.material.color.setRGB(1, 1, 1 - sad * .5);
+      }
+      if (view.cloud) { view.cloud.visible = sad > 0; view.cloud.position.set(hx, c.h * 1.25 + Math.sin(time * 4) * .03, 0); }
+    } else {
+      rot = motion ? Math.sin(a * 1.6) * .04 : 0;
+    }
+    if (view.flash > 0) { sx *= 1 + view.flash * .2; sy *= 1 - view.flash * .18; tint.setRGB(1, 1 - view.flash * .55, 1 - view.flash * .45); }
     view.flash = Math.max(0, view.flash - .08);
-    const warning = view.group.getObjectByName('warning');
-    if (warning) {
-      const urgency = t.age / t.deadline; warning.visible = urgency > .48 && game.mode !== 'menu' && game.mode !== 'select';
-      warning.scale.setScalar(.35 + urgency * .3 + (motion ? Math.sin(time * 14) * .03 : 0));
+    view.body.position.y = lift; view.body.rotation.z = rot;
+    view.sprite.scale.set(sx * view.facing, sy, 1);
+    view.sprite.material.color.copy(tint);
+  }
+}
+
+/** Exit animations for actors already gone from the rules: knockout flight with dizzy stars, or the attack lunge. */
+function animateLeaving(dt: number, time: number) {
+  for (let i = leaving.length - 1; i >= 0; i--) {
+    const d = leaving[i]; d.age += dt; const v = d.view, m = v.sprite.material;
+    if (d.how === 'ko') {
+      if (d.age < .09) v.sprite.scale.set(1.4 * v.facing, .6, 1); // impact squash
+      else {
+        const k = d.age - .09; v.sprite.scale.set(.9 * v.facing, 1.12, 1);
+        v.body.rotation.z = -d.spin * k * 7; v.body.position.y = k * 3.2 - k * k * 7;
+        v.group.position.z -= dt * 3.5; v.group.position.x += dt * d.spin * -1.5;
+      }
+      if (v.stars) { v.stars.visible = true; v.stars.material.rotation = time * 8; }
+      if (d.age > .45) { m.transparent = true; m.opacity = Math.max(0, 1 - (d.age - .45) * 4); }
+      if (d.age > .75) { disposeView(v); leaving.splice(i, 1); }
+    } else {
+      // Attack: lunge at the player with a big swing, then duck away.
+      const k = Math.min(1, d.age / .16);
+      v.group.position.z += dt * (d.age < .16 ? 5 : -2); v.body.rotation.z = v.facing * .35 * k;
+      v.sprite.scale.set((1 + .25 * k) * v.facing, 1 + .2 * k, 1);
+      if (d.age > .2) { v.body.position.y -= dt * 6; m.transparent = true; m.opacity = Math.max(0, 1 - (d.age - .2) * 3.5); }
+      if (d.age > .5) { disposeView(v); leaving.splice(i, 1); }
     }
   }
 }
@@ -280,7 +389,7 @@ function ribbon(color: string, order: number) {
 const hoseInk = ribbon('#151715', 1), hoseFill = ribbon('#898989', 2), hoseShine = ribbon('#b3b3ad', 3);
 const speedLines = [ribbon('#151715', 1), ribbon('#151715', 1)];
 flightGlove.renderOrder = 4; impactGlove.renderOrder = 5; restArm.renderOrder = 6; recoilArm.renderOrder = 6;
-const heldSprite = new THREE.Mesh(new THREE.PlaneGeometry(CARD.bottle.w / CARD.bottle.h, 1), new THREE.MeshBasicMaterial({ map: textures.bottle, transparent: true, depthTest: false, depthWrite: false }));
+const heldSprite = new THREE.Mesh(new THREE.PlaneGeometry(BODY.bottle.w / BODY.bottle.h, 1), new THREE.MeshBasicMaterial({ map: textures.bottle, transparent: true, depthTest: false, depthWrite: false }));
 heldSprite.renderOrder = 7; hud.add(heldSprite);
 
 function setRibbon(mesh: THREE.Mesh, a: THREE.Vector2, ctrl: THREE.Vector2, b: THREE.Vector2, w0: number, w1: number, shift = 0) {
@@ -322,7 +431,7 @@ const pointer = new THREE.Vector2(0, 0);
 let lastMode = '';
 let lastHp = game.hp;
 const DURATION = .42, ARRIVE = .36, RELEASE = .62;
-interface Swing { action: Action; throwing: boolean; ray: { origin: Vec3; direction: Vec3 }; shot: Shot; phase: number; resolved: boolean; outcome?: Outcome; held: CardKind | null; staminaBefore: number; staminaAfter: number; }
+interface Swing { action: Action; throwing: boolean; ray: { origin: Vec3; direction: Vec3 }; shot: Shot; phase: number; resolved: boolean; outcome?: Outcome; held: BodyKind | null; staminaBefore: number; staminaAfter: number; }
 let swing: Swing | null = null;
 let shake = 0, hitstop = 0, timeScale = 1;
 const strikes: { action: Action; outcome: Outcome; kind: string; id: number | string | null; staminaBefore: number; staminaAfter: number }[] = [];
@@ -343,7 +452,7 @@ function updateCrosshair() {
   if (crosshair) { crosshair.style.left = (pointer.x + 1) * 50 + '%'; crosshair.style.top = (1 - pointer.y) * 50 + '%'; }
 }
 const motion = () => !reducedMotion();
-function currentHittables() { return hittables(game.level, game.targets, motion(), levelScenery[game.level]); }
+function currentHittables() { return hittables(game.level, game.actors, motion(), levelScenery[game.level]); }
 function aimRay(ndc: THREE.Vector2) {
   raycaster.setFromCamera(ndc, camera);
   const { origin, direction } = raycaster.ray;
@@ -359,12 +468,31 @@ function perform(action: Action) {
   const held = game.held, staminaBefore = game.stamina;
   if (!game.spend(action)) { updateHud(); sound('ui'); return; }
   const ray = aimRay(pointer);
+  sound('whoosh');
   swing = { action, throwing, ray, shot: resolveShot(ray.origin, ray.direction, currentHittables()), phase: 0, resolved: false, held, staminaBefore, staminaAfter: game.stamina };
   if (!motion()) land(swing);
   updateHud();
 }
 
-/** Arrival: re-cast the same ray against the scene as it is *now* (targets keep moving while the fist flies). */
+/** Comic callout text popping at a screen point (combo counts, dog scolding, attacks). */
+function callout(text: string, x: number, y: number, tone: 'combo' | 'bad' | 'pop' = 'pop') {
+  const el = document.createElement('div'); el.className = 'callout ' + tone; el.textContent = text;
+  el.style.left = Math.round(THREE.MathUtils.clamp(x, 90, innerWidth - 90)) + 'px'; el.style.top = Math.round(THREE.MathUtils.clamp(y, 120, innerHeight - 160)) + 'px';
+  ui.append(el); setTimeout(() => el.remove(), 900);
+}
+const COMBO_WORDS = ['', '', 'ДВОЙНОЙ!', 'ТРОЙНОЙ!', 'РАЗМАШИСТО!', 'НЕУДЕРЖИМ!'];
+function drainEvents(at?: { x: number; y: number }) {
+  for (const e of game.events) {
+    const v = views.get(e.id); const p = at ?? (v ? toScreen({ x: v.group.position.x, y: v.group.position.y + 1.2, z: v.group.position.z }) : { x: innerWidth / 2, y: innerHeight / 2 });
+    if (e.type === 'ko' || e.type === 'smash') { exits.set(e.id, 'ko'); if (e.type === 'ko') sound('ko'); }
+    if (e.type === 'ko' && e.combo >= 2) callout(`КОМБО ×${e.combo} ${COMBO_WORDS[Math.min(e.combo, 5)]}`, p.x, p.y - 70, 'combo');
+    if (e.type === 'attack') { exits.set(e.id, 'attack'); sound('attack'); callout('БАЦ! −♥', p.x, p.y, 'bad'); if (motion()) shake = .22; }
+    if (e.type === 'dog') { if (v) v.sad = 2.4; sound('dog'); callout('ПСА НЕ ТРОГАЙ!', p.x, p.y - 60, 'bad'); }
+  }
+  game.events.length = 0;
+}
+
+/** Arrival: re-cast the same ray against the scene as it is *now* (actors keep moving while the fist flies). */
 function land(s: Swing) {
   s.resolved = true;
   s.shot = resolveShot(s.ray.origin, s.ray.direction, currentHittables());
@@ -372,14 +500,17 @@ function land(s: Swing) {
   const res = game.resolve(s.action, { kind: s.shot.kind, id: s.shot.id });
   s.outcome = res;
   strikes.push({ action: s.action, outcome: res, kind: s.shot.kind, id: s.shot.id ?? null, staminaBefore: s.staminaBefore, staminaAfter: s.staminaAfter }); if (strikes.length > 20) strikes.shift();
-  if (res === 'hit' || res === 'throw' || res === 'smash') { if (id !== undefined) knocked.add(id); sound(res === 'smash' ? 'grab' : res); }
-  else if (res === 'grab') sound('grab');
-  else sound('miss');
+  if (res === 'hit' || res === 'throw') sound(res);
+  else if (res === 'smash' || res === 'grab') sound('grab');
+  else if (res === 'cover') sound('cover');
+  else if (res !== 'protected') sound('miss');
   if (id !== undefined) { const v = views.get(id); if (v) v.flash = 1; }
   if (res === 'cover' && typeof s.shot.id === 'string') { const c = coverMeshes.get(s.shot.id); if (c) c.userData.wobble = 1; }
   const strong = res === 'hit' || res === 'throw' || res === 'protected';
-  if (motion()) { shake = strong ? .16 : res === 'cover' || res === 'smash' ? .08 : .02; hitstop = strong ? .07 : res === 'cover' ? .04 : 0; }
-  syncTargets(runtime); renderUi();
+  // Hit-stop (~60 ms freeze) + a small shake sell the contact; whiffs only get a breath of shake.
+  if (motion()) { shake = strong ? .16 : res === 'cover' || res === 'smash' ? .08 : .02; hitstop = strong ? .06 : res === 'cover' ? .035 : 0; }
+  drainEvents(toScreen(s.shot.point));
+  syncActors(runtime); renderUi();
 }
 
 canvas.addEventListener('pointermove', e => { pointer.set((e.clientX / innerWidth) * 2 - 1, -(e.clientY / innerHeight) * 2 + 1); updateCrosshair(); });
@@ -407,18 +538,18 @@ function renderUi() {
   const mode = game.mode;
   if (mode !== lastMode) { lastMode = mode; resize(); }
   sign.material.map = signs[game.level - 1];
-  sun.color.set(game.level === 1 ? '#fff5df' : '#e0e9ff');
-  levelGroups[1].visible = game.level === 1; levelGroups[2].visible = game.level === 2;
+  applyLook(shownLevel());
+  { const shown = shownLevel(); levelGroups[1].visible = shown === 1; levelGroups[2].visible = shown === 2; }
   app.dataset.mode = mode; app.dataset.level = String(game.level);
   if (mode === 'menu') {
-    ui.innerHTML = chrome() + '<section class="panel"><div class="eyebrow">Карманный дворовый экшен / 01</div><h1>ДЛИННЫЕ<br><em>РУКИ.</em></h1><p>Большой размах в маленьком дворе.<br>Утихомирь задир. Пса не трогай.</p><div class="buttons"><button id="start" class="primary">ВО ДВОР →</button><button id="how" class="secondary">КАК ИГРАТЬ?</button></div><div class="fine">Без беготни. Только ловкость рук.</div></section><div class="stamp">100%<b>РАЗМАХ</b>0% СЕРЬЁЗНОСТИ</div><div class="footer"><span>ДВА ДВОРА · ОДНА ПАРА РУК</span><span>РЕКОРД: ' + game.progress.best + ' / СДЕЛАНО ИЗ КАРТОНА И ХАРАКТЕРА</span></div>';
+    ui.innerHTML = chrome() + '<section class="panel"><div class="eyebrow">Дворовая потасовка на резиновых руках</div><h1>ДЛИННЫЕ<br><em>РУКИ.</em></h1><p>Двор живой: задиры прячутся за бочками и заборами, высовываются и замахиваются. Тянись, бей, уворачивайся. Пса с нимбом не трогай.</p><div class="buttons"><button id="start" class="primary">ВО ДВОР →</button><button id="how" class="secondary">КАК ИГРАТЬ?</button></div><div class="fine">Без беготни. Только ловкость рук.</div></section><div class="stamp">100%<b>РАЗМАХ</b>0% СЕРЬЁЗНОСТИ</div><div class="footer"><span>ТИХИЙ ДВОР · ШУМНЫЙ ПЕРЕУЛОК</span><span>РЕКОРД: ' + game.progress.best + ' / РЕЗИНОВЫЕ РУКИ 1930-х</span></div>';
     button('start', () => { game.mode = 'select'; renderUi(); });
     button('how', () => {
-      ui.innerHTML += '<div class="shade"></div><section class="panel centerpanel"><span class="note">ПАМЯТКА ДЛИННОРУКОГО</span><h2>Целься. Тянись.<br>Не трогай пса.</h2><p>Кулак летит ровно туда, куда ты целишься: никакого автоприцела. Бочки, ящики и забор закрывают задир — бей, когда высунутся. Промах тоже тратит силы.</p><p>ЛКМ / пробел — удар. ПКМ / E — хватай предмет, затем бросай в задиру. Розовое кольцо — задира скоро ударит. Пёс с нимбом — неприкосновенный.</p><button id="close" class="primary">ПОНЯТНО →</button></section>';
+      ui.innerHTML += '<div class="shade"></div><section class="panel centerpanel"><span class="note">ПАМЯТКА ДЛИННОРУКОГО</span><h2>Целься. Тянись.<br>Не трогай пса.</h2><p>Кулак летит ровно туда, куда ты целишься: никакого автоприцела. Задиры прячутся за бочками, ящиками и забором — бей, когда высунутся. Промах тоже тратит силы.</p><p>ЛКМ / пробел — удар. ПКМ / E — хватай предмет, затем бросай в задиру. Задира краснеет и замахивается — бей раньше, чем он ударит. Пёс с нимбом — неприкосновенный.</p><button id="close" class="primary">ПОНЯТНО →</button></section>';
       button('close', renderUi);
     });
   } else if (mode === 'select') {
-    ui.innerHTML = chrome() + '<div class="shade"></div><section class="panel centerpanel"><div class="eyebrow">Выбери свой размах</div><h2>ЗНАКОМЫЕ<br>ВСЁ ДВОРЫ.</h2><div class="levels"><button id="level1" class="primary level"><span>01 / ТИХИЙ ДВОР<br><small>9 задир · мягкий разогрев</small></span><b>↗</b></button><button id="level2" class="secondary level" ' + (game.progress.unlocked < 2 ? 'disabled' : '') + '><span>02 / ШУМНЫЙ ПЕРЕУЛОК<br><small>' + (game.progress.unlocked < 2 ? 'Сначала наведи порядок в первом дворе' : '14 задир · держи темп') + '</small></span><b>' + (game.progress.unlocked < 2 ? '⊗' : '↗') + '</b></button></div><div class="buttons"><button id="back" class="secondary">← НАЗАД</button></div></section>';
+    ui.innerHTML = chrome() + '<div class="shade"></div><section class="panel centerpanel"><div class="eyebrow">Выбери свой размах</div><h2>ЗНАКОМЫЕ<br>ВСЁ ДВОРЫ.</h2><div class="levels"><button id="level1" class="primary level"><span>01 / ТИХИЙ ДВОР<br><small>9 задир · мягкий разогрев</small></span><b>↗</b></button><button id="level2" class="secondary level" ' + (game.progress.unlocked < 2 ? 'disabled' : '') + '><span>02 / ШУМНЫЙ ПЕРЕУЛОК · СУМЕРКИ<br><small>' + (game.progress.unlocked < 2 ? 'Сначала наведи порядок в первом дворе' : '14 задир · держи темп') + '</small></span><b>' + (game.progress.unlocked < 2 ? '⊗' : '↗') + '</b></button></div><div class="buttons"><button id="back" class="secondary">← НАЗАД</button></div></section>';
     button('level1', () => { game.start(1); renderUi(); });
     button('level2', () => { game.start(2); renderUi(); });
     button('back', () => { game.mode = 'menu'; renderUi(); });
@@ -435,17 +566,17 @@ function renderUi() {
     }
     updateHud();
   }
-  syncTargets(runtime);
+  syncActors(runtime);
   if (mode !== 'play') { ui.insertAdjacentHTML('beforeend', settingsUi()); bindSettings(renderUi); }
 }
 
 function toScreen(p: Vec3) { const v = new THREE.Vector3(p.x, p.y, p.z).project(camera); return { x: (v.x + 1) / 2 * innerWidth, y: (1 - v.y) / 2 * innerHeight }; }
 /**
- * A screen point that free-aim would actually resolve to this target right now (hitbox sampled top-down,
+ * A screen point that free-aim would actually resolve to this actor right now (hitbox sampled top-down,
  * occlusion respected). Published for accessibility tooling and tests; null when fully behind cover.
  */
-function clickablePoint(t: Target) {
-  const c = CARD[t.kind]; const p = pose(game.level, t, motion()); const [l, r, b, tp] = c.inset;
+function clickablePoint(t: Actor) {
+  const c = BODY[t.kind]; const p = pose(game.level, t, motion()); const [l, r, b, tp] = c.inset;
   for (const fy of [.8, .65, .9, .5, .35]) for (const fx of [.5, .38, .62]) {
     const world = { x: p.x - c.w / 2 + c.w * (l + (r - l) * fx), y: p.y + c.h * (b + (tp - b) * fy), z: p.z };
     const s = toScreen(world); const shot = shotAt(new THREE.Vector2(s.x / innerWidth * 2 - 1, 1 - s.y / innerHeight * 2));
@@ -456,23 +587,24 @@ function clickablePoint(t: Target) {
 
 let lastAim = '';
 function updateHud() {
-  const enemies = game.targets.filter(t => t.kind === 'enemy');
+  const enemies = game.actors.filter(t => t.kind === 'enemy');
   const labels = enemies.map(t => (t.x < -.5 ? 'слева' : t.x > .5 ? 'справа' : 'в центре') + (t.layer === 'foreground' ? ' (за укрытием рядом)' : t.layer === 'background' ? ' (в окне)' : ' (за забором)'));
   canvas.setAttribute('aria-label', `Уровень ${game.level}. Задиры: ${labels.join(', ') || 'нет'}. Наведи прицел, затем нажми Удар.`);
-  const aim = JSON.stringify(game.mode === 'play' ? game.targets.map(t => ({ id: t.id, kind: t.kind, layer: t.layer, at: t.age >= .4 ? clickablePoint(t) : null })) : []);
+  const aim = JSON.stringify(game.mode === 'play' ? game.actors.map(t => ({ id: t.id, kind: t.kind, layer: t.layer, at: t.age >= .4 ? clickablePoint(t) : null })) : []);
   if (aim !== lastAim) { lastAim = aim; canvas.dataset.aim = aim; }
   const set = (id: string, text: string) => { const el = document.getElementById(id); if (el) el.textContent = text; };
   set('hearts', '♥'.repeat(Math.max(0, game.hp)) + '♡'.repeat(5 - Math.max(0, game.hp)));
   set('stamina', Math.floor(game.stamina) + '');
   set('score', game.score.toString().padStart(5, '0'));
   set('combo', game.combo > 1 ? 'КОМБО ×' + game.combo : 'ДАЙ ИМ РАЗМАХ');
-  set('progress', `ДВОР 0${game.level} / ${game.defeated} ИЗ ${game.goal} ЗАДИР`);
+  set('progress', `${game.level === 1 ? 'ДВОР' : 'ПЕРЕУЛОК'} / ${game.defeated} ИЗ ${game.goal} ЗАДИР`);
   set('message', game.message);
   const energy = document.getElementById('energy'); if (energy) energy.style.width = game.stamina + '%';
   const grab = document.getElementById('grab'); if (grab) grab.innerHTML = game.held ? 'БРОСАЙ ↗<small>В ЗАДИРУ · ' + costOf('grab', true) + ' СИЛ</small>' : 'ХВАТАЙ ◎<small>ПКМ / E · 12 СИЛ</small>';
 }
 
 const ease = (v: number) => 1 - (1 - v) ** 3;
+const backOut = (v: number) => { const c = 1.9, u = v - 1; return 1 + (c + 1) * u ** 3 + c * u ** 2; };
 function drawArm(time: number) {
   const W = innerWidth, H = innerHeight, unit = Math.min(W, H);
   const show = game.mode === 'play' || game.mode === 'pause';
@@ -492,8 +624,9 @@ function drawArm(time: number) {
     const a = (k - .84) / .13; recoilArm.visible = true; recoilArm.scale.setScalar(restSize * .95); recoilArm.position.set(W + restSize * .05, -restSize * (.25 - a * .2), 0);
   }
   if (s && k >= .08 && k <= .84) {
-    const target = toScreen(s.shot.point); const tip = new THREE.Vector2(target.x, H - target.y);
-    const extend = k < ARRIVE ? ease((k - .08) / (ARRIVE - .08)) : k < RELEASE ? 1 : 1 - ease((k - RELEASE) / (.84 - RELEASE)) * .82;
+    const aimAt = toScreen(s.shot.point); const tip = new THREE.Vector2(aimAt.x, H - aimAt.y);
+    // Rubbery launch: overshoots past the impact point and snaps back onto it right at arrival.
+    const extend = k < ARRIVE ? backOut((k - .08) / (ARRIVE - .08)) : k < RELEASE ? 1 : 1 - ease((k - RELEASE) / (.84 - RELEASE)) * .82;
     const fist = shoulder.clone().lerp(tip, extend);
     const dist = Math.max(3, s.shot.distance);
     const impactSize = THREE.MathUtils.clamp(unit * 1.35 / dist, unit * .07, unit * .3);
@@ -542,10 +675,11 @@ function frame() {
   if (game.mode !== 'pause') runtime += dt;
   if (hitstop > 0) hitstop -= dt; else game.tick(dt);
   if (game.mode !== lastMode) renderUi();
-  levelGroups[1].visible = game.level === 1; levelGroups[2].visible = game.level === 2;
+  if (game.events.length) drainEvents();
+  { const shown = shownLevel(); levelGroups[1].visible = shown === 1; levelGroups[2].visible = shown === 2; }
   if (lastHp > game.hp && motion()) { const flash = document.createElement('div'); flash.className = 'flash'; ui.append(flash); setTimeout(() => flash.remove(), 400); }
   lastHp = game.hp;
-  syncTargets(runtime);
+  syncActors(runtime);
   if (game.mode === 'play') updateHud();
 
   if (swing && game.mode !== 'pause') {
@@ -555,13 +689,7 @@ function frame() {
   }
   if (game.mode !== 'play' && game.mode !== 'pause') swing = null;
 
-  for (let i = dying.length - 1; i >= 0; i--) {
-    const d = dying[i]; d.age += dt;
-    // Knockout: the card is punched backward off its feet and tumbles out.
-    d.view.card.rotation.x = -Math.min(1.45, d.age * 7); d.view.card.rotation.z = d.spin * d.age * 2.5;
-    d.view.group.position.y += dt * (2.2 - d.age * 12); d.view.group.position.z -= dt * 3;
-    if (d.age > .45) { disposeView(d.view); dying.splice(i, 1); }
-  }
+  animateLeaving(dt, runtime);
   for (const cover of coverMeshes.values()) {
     const w = cover.userData.wobble as number | undefined; if (!w) continue;
     cover.scale.set(1 + Math.sin(w * 30) * w * .05, 1 - Math.sin(w * 30) * w * .04, 1); cover.userData.wobble = Math.max(0, w - dt * 3);
@@ -591,14 +719,14 @@ if (import.meta.env.DEV) {
   Object.assign(window, {
     __game: game,
     __test: {
-      /** Screen point that free-aim resolves to this target right now (null if fully occluded). */
-      project(id: number) { const t = game.targets.find(v => v.id === id); return t ? clickablePoint(t) : null; },
+      /** Screen point that free-aim resolves to this actor right now (null if fully occluded). */
+      project(id: number) { const t = game.actors.find(v => v.id === id); return t ? clickablePoint(t) : null; },
       /** Predict what a click at (x,y) would strike, using the same resolver the game uses. */
       shotAt(x: number, y: number) { const s = shotAt(new THREE.Vector2(x / innerWidth * 2 - 1, 1 - y / innerHeight * 2)); return { kind: s.kind, id: s.id ?? null, distance: s.distance }; },
-      /** Sample the full card hitbox of a target and report what each screen point would actually hit. */
+      /** Sample the full sprite hitbox of an actor and report what each screen point would actually hit. */
       samples(id: number) {
-        const t = game.targets.find(v => v.id === id); if (!t) return [];
-        const c = CARD[t.kind], p = pose(game.level, t, motion()), [l, r, b, tp] = c.inset, out = [];
+        const t = game.actors.find(v => v.id === id); if (!t) return [];
+        const c = BODY[t.kind], p = pose(game.level, t, motion()), [l, r, b, tp] = c.inset, out = [];
         for (let fy = .05; fy < 1; fy += .1) for (let fx = .1; fx < 1; fx += .2) {
           const s = toScreen({ x: p.x - c.w / 2 + c.w * (l + (r - l) * fx), y: p.y + c.h * (b + (tp - b) * fy), z: p.z });
           const shot = shotAt(new THREE.Vector2(s.x / innerWidth * 2 - 1, 1 - s.y / innerHeight * 2));
