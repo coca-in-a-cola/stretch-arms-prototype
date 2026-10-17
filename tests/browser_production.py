@@ -96,6 +96,73 @@ def check_buttons(page: Page) -> None:
             assert bounds['x'] >= 0 and bounds['y'] >= 0, (button.inner_text(), bounds)
 
 
+def aim_entry(page: Page, kind: str, frame: str | None = None):
+    return page.evaluate('([kind, frame]) => JSON.parse(document.querySelector("#scene").dataset.aim || "[]").find(t => t.kind === kind && t.at && (!frame || t.frame === frame)) || null', [kind, frame])
+
+
+def advance_until(page: Page, kind: str, frame: str | None, limit_ms: int = 20000):
+    """Fake clock: step the game in 100 ms slices until an actor shows the wanted drawn frame."""
+    for _ in range(limit_ms // 100):
+        hit = aim_entry(page, kind, frame)
+        if hit:
+            return hit
+        page.clock.run_for(100)
+    raise AssertionError(f'no {kind} reached frame {frame}')
+
+
+def acting_evidence(browser, url: str, errors: list[str]) -> None:
+    """Full motion, deterministic fake clock: first-person arms at rest and mid-punch, the drawn
+    wind-up / hurt frames of a bully and the sad dog frame, on both levels."""
+    ctx = browser.new_context(viewport={'width': 1440, 'height': 960}, reduced_motion='no-preference')
+    ctx.add_init_script('localStorage.setItem("long-arms.progress.v1", JSON.stringify({version:1,unlocked:2,best:0}))')
+    page = ctx.new_page()
+    page.on('pageerror', lambda error: errors.append(str(error)))
+    page.on('console', lambda message: errors.append(message.text) if message.type == 'error' else None)
+    page.clock.install(time=0)
+    page.goto(url)
+    page.locator('#start').wait_for()
+    page.clock.pause_at(5000)  # game time now only moves with run_for(), never while screenshotting
+    assert_production(page)
+    page.locator('#start').click()
+    page.locator('#level1').click()
+    page.mouse.move(720, 300)
+    page.clock.run_for(900)
+    capture(page, 'arm-idle-level1')
+    advance_until(page, 'enemy', 'windup')
+    page.clock.run_for(200)
+    capture(page, 'enemy-windup')
+    enemy = advance_until(page, 'enemy', None)
+    # Prefer a near bully clear of the front barrels (not a tiny one in a window) so the hurt frame reads.
+    for _ in range(120):
+        open_enemy = page.evaluate('() => JSON.parse(document.querySelector("#scene").dataset.aim || "[]").find(t => t.kind === "enemy" && t.layer !== "background" && t.at && t.at.x > innerWidth / 2) || null')
+        if open_enemy:
+            enemy = open_enemy
+            break
+        page.clock.run_for(100)
+    page.mouse.move(enemy['at']['x'], enemy['at']['y'])
+    page.mouse.down()
+    page.mouse.up()
+    page.clock.run_for(130)
+    capture(page, 'arm-punch')
+    page.clock.run_for(110)
+    capture(page, 'enemy-hit')
+    page.clock.run_for(1200)
+    dog = advance_until(page, 'dog', 'sit')
+    page.mouse.move(dog['at']['x'], dog['at']['y'])
+    page.mouse.down()
+    page.mouse.up()
+    page.clock.run_for(700)
+    capture(page, 'dog-sad')
+    assert aim_entry(page, 'dog', 'sad'), 'dog did not switch to its sad frame'
+    page.locator('#pause').click()
+    page.locator('#select').click()
+    page.locator('#level2').click()
+    page.mouse.move(720, 300)
+    page.clock.run_for(900)
+    capture(page, 'arm-idle-level2')
+    ctx.close()
+
+
 def main() -> None:
     OUT.mkdir(parents=True, exist_ok=True)
     for old in OUT.glob('*.png'):
@@ -191,6 +258,7 @@ def main() -> None:
             mp.locator('#pause').tap()
             capture(mp, 'landscape-pause')
             check_buttons(mp)
+            acting_evidence(browser, url, errors)
             fallback = browser.new_context()
             fp = fallback.new_page()
             fp.add_init_script('HTMLCanvasElement.prototype.getContext = function(){ return null; }')
@@ -199,7 +267,7 @@ def main() -> None:
             assert fp.get_by_role('button',name='ОБНОВИТЬ').is_visible()
             capture(fp, 'webgl-fallback')
             assert not errors, errors
-            report={'url':url,'mutableHooks':False,'consoleErrors':errors,'flows':['desktop natural 9-hit win (retry when an enemy ducks), hit-moment capture, unlock and persistence','touch natural 9-hit win (>=4 hearts) and level2 hit','level2 natural five-deadline loss and full-HP retry','pause freezes public state','real CDP background freeze auto-pauses; public state stays frozen on return','system reduced motion + persisted override and mute','WebGL unavailable fallback','390x844 portrait and 844x390 landscape controls >=44px'], 'screenshots':sorted(path.name for path in OUT.glob('*.png'))}
+            report={'url':url,'mutableHooks':False,'consoleErrors':errors,'flows':['desktop natural 9-hit win (retry when an enemy ducks), hit-moment capture, unlock and persistence','touch natural 9-hit win (>=4 hearts) and level2 hit','level2 natural five-deadline loss and full-HP retry','pause freezes public state','real CDP background freeze auto-pauses; public state stays frozen on return','system reduced motion + persisted override and mute','WebGL unavailable fallback','390x844 portrait and 844x390 landscape controls >=44px','full-motion fake-clock acting: arms idle both levels, mid-punch, bully wind-up and hurt frames, sad dog frame'], 'screenshots':sorted(path.name for path in OUT.glob('*.png'))}
             (OUT/'report.json').write_text(json.dumps(report,indent=2))
             print(json.dumps(report,indent=2))
         finally:

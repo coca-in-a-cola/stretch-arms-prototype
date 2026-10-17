@@ -12,10 +12,12 @@ export interface LevelLayout { covers: Cover[]; slots: Slot[]; order: number[]; 
 export const BODY = {
   enemy: { w: 1.52, h: 1.9, inset: [.2, .82, .03, .95] },
   dog: { w: 1.1, h: 1.375, inset: [.14, .9, .03, .95] },
-  bottle: { w: .62, h: .82, inset: [.14, .86, 0, .96] },
+  bottle: { w: .62, h: .82, inset: [.26, .74, 0, .96] },
   barrel: { w: .7, h: .82, inset: [.1, .9, 0, .96] },
 } as const;
 export type BodyKind = keyof typeof BODY;
+/** Top of the visible gen_dog_walk.png frame, as a fraction of the sprite height. */
+export const DOG_WALK_TOP = .82;
 
 const box = (id: string, look: CoverLook, layer: Layer, cx: number, y0: number, cz: number, w: number, h: number, d: number, color: string): Cover =>
   ({ id, look, layer, color, min: { x: cx - w / 2, y: y0, z: cz - d / 2 }, max: { x: cx + w / 2, y: y0 + h, z: cz + d / 2 } });
@@ -139,6 +141,8 @@ export function hittables(level: number, actors: readonly { id: number; kind: Bo
   const out: Hittable[] = LEVELS[level].covers.map(c => ({ id: c.id, kind: 'cover', min: c.min, max: c.max }));
   for (const t of actors) {
     const b = bodyBox(t.kind, pose(level, t, motion));
+    // The walking dog frame is a low side view: its hitbox drops to the drawn back/ears.
+    if (t.kind === 'dog' && dogWalk(t.age, motion).walking) b.max.y = b.min.y + BODY.dog.h * (DOG_WALK_TOP - BODY.dog.inset[2]);
     out.push({ id: t.id, kind: t.kind === 'enemy' ? 'enemy' : t.kind === 'dog' ? 'dog' : 'prop', ...b });
   }
   return out.concat(scenery);

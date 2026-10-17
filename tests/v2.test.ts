@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { resolveShot, type Vec3 } from '../src/aim';
-import { LEVELS, BODY, DUCKS, WINDUP, RISE_TIME, bodyBox, cameraFor, dogWalk, exposure, hittables, pose } from '../src/layout';
+import { LEVELS, BODY, DUCKS, WINDUP, RISE_TIME, bodyBox, cameraFor, dogWalk, DOG_WALK_TOP, exposure, hittables, pose } from '../src/layout';
 import { Game } from '../src/game';
 
 const cam = cameraFor(1440, 960).position;
@@ -102,5 +102,14 @@ describe('copy: a living street brawler, not a shooting gallery', () => {
   for (const f of files) test(`${f} has no shooting-gallery / cardboard wording`, () => {
     const text = readFileSync(join(root, f), 'utf8').replace(/e\.target/g, '');
     for (const re of banned) expect({ f, match: text.match(re)?.[0] ?? null }).toEqual({ f, match: null });
+  });
+});
+
+describe('hitboxes follow the drawn frame', () => {
+  test('the walking dog (low side-view frame) is only hittable up to its drawn back, the sitting dog to its ears', () => {
+    const dog = { id: 1, kind: 'dog' as const, x: LEVELS[1].dog.x, y: 0, z: LEVELS[1].dog.z, age: 0 };
+    const top = (age: number) => hittables(1, [{ ...dog, age }]).find(h => h.kind === 'dog')!.max.y;
+    expect(top(1)).toBeCloseTo(BODY.dog.h * BODY.dog.inset[3], 6); // sitting
+    expect(top(4)).toBeCloseTo(BODY.dog.h * DOG_WALK_TOP, 6); // strolling between spots
   });
 });
