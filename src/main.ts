@@ -397,9 +397,10 @@ function burstTexture(word: string, fill: string, accent: string, spikes = 12) {
   return c;
 }
 const bursts: Record<string, HTMLCanvasElement> = {
-  hit: burstTexture('БАМ!', '#fff6d8', '#f359a4'), throw: burstTexture('ХРЯСЬ!', '#fff6d8', '#c7f653'),
-  protected: burstTexture('АЙ!', '#ffd3d3', '#e2324e', 9), cover: burstTexture('ТУК!', '#e9dcc0', '#9c7a54', 8),
-  smash: burstTexture('ДЗЫНЬ!', '#fff6d8', '#f6c453', 14), miss: burstTexture('ВЖУХ', '#eef0ea', '#b9c0b5', 7),
+  // Saturated fills: impact FX are colour against the grey world, like everything you touch.
+  hit: burstTexture('БАМ!', '#ffd84a', '#f3388f'), throw: burstTexture('ХРЯСЬ!', '#ffd84a', '#8fdc2a'),
+  protected: burstTexture('АЙ!', '#ff9fb0', '#e2324e', 9), cover: burstTexture('ТУК!', '#f4c27a', '#c9772e', 8),
+  smash: burstTexture('ДЗЫНЬ!', '#9fe7ff', '#2f9be0', 14), miss: burstTexture('ВЖУХ', '#eef0ea', '#b9c0b5', 7),
 };
 
 // -------------------------------------------------------------------------------------------------
