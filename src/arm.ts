@@ -1,6 +1,8 @@
 // First-person rubber-hose arms: pure screen-space geometry (unit-tested) + Canvas 2D inking.
-// Two charcoal hoses rise from the bottom edge into a boxing guard; the one on the clicked side
+// Two cobalt hoses rise from the bottom edge into a boxing guard; the one on the clicked side
 // stretches so the fist centre lands exactly on the click point, wobbles, and snaps back.
+
+import { SLEEVE as PALETTE_SLEEVE } from './palette';
 
 export interface Pt { x: number; y: number }
 /** Screen px, y down. `glove` is the fist centre; `ctrl` bends the hose (quadratic bezier shoulder→cuff). */
@@ -88,7 +90,8 @@ export function gloveBounds(a: ArmPose) {
 // -------------------------------------------------------------------------------------------------
 // Inking (Canvas 2D). Silhouette passes: cream rim → black ink → fills, so the arm reads on any backdrop.
 // -------------------------------------------------------------------------------------------------
-const INK = '#151715', RIM = 'rgba(255,248,226,.92)', SLEEVE = '#3d424b', SLEEVE_SHINE = '#6f7785', SLEEVE_DARK = '#2a2d33';
+// Sleeves are coloured (palette.ts): the player's own arm is "active" in a grey world; gloves stay white.
+const INK = '#151715', RIM = 'rgba(255,248,226,.92)', SLEEVE = PALETTE_SLEEVE.base, SLEEVE_SHINE = PALETTE_SLEEVE.shine, SLEEVE_DARK = PALETTE_SLEEVE.dark;
 const GLOVE = '#fdfaf0', GLOVE_SHADE = '#ddd6c4';
 
 function bezier(a: Pt, c: Pt, b: Pt, t: number): Pt { const u = 1 - t; return { x: u * u * a.x + 2 * u * t * c.x + t * t * b.x, y: u * u * a.y + 2 * u * t * c.y + t * t * b.y }; }
