@@ -96,7 +96,7 @@ def main() -> None:
         assert result['outcome'] == 'protected' and page.evaluate('__game.hp') == hp - 1, result
         checks.append(f"click ({dp['x']},{dp['y']}) on halo dog → protected penalty")
 
-        # 5. Evidence: POV arm mid-punch over layered depth, both levels.
+        # 5. Evidence: first-person arm mid-punch over layered depth, both levels.
         for level in (1, 2):
             fresh_level(page, level)
             actor = page.evaluate('__game.actors.filter(t=>t.kind==="enemy").find(t=>__test.project(t.id))')

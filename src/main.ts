@@ -4,6 +4,7 @@ import { resolveShot, type Hittable, type Shot, type Vec3 } from './aim';
 import { LEVELS, BODY, WINDUP, pose, dogWalk, hittables, cameraFor, type Cover, type BodyKind } from './layout';
 import './style.css';
 import { makeStreet } from './street';
+import { armMetrics, restPose, punchPose, sideFor, drawArm as inkArm, type Avoid, type Pt } from './arm';
 import { reducedMotion, unlockAudio, sound, settingsUi, bindSettings } from './preferences';
 
 const KEY = 'long-arms.progress.v1';
@@ -11,7 +12,7 @@ let raw: string | null = null;
 try { raw = localStorage.getItem(KEY); } catch { raw = null; }
 const game = new Game(readProgress(raw), p => { try { localStorage.setItem(KEY, JSON.stringify(p)); } catch { game.message = 'Сохранение недоступно в этом браузере.'; } });
 const app = document.querySelector<HTMLDivElement>('#app')!;
-app.innerHTML = '<canvas id="scene" aria-label="Трёхмерный двор и задиры"></canvas><div id="ui"></div>';
+app.innerHTML = '<canvas id="scene" aria-label="Трёхмерный двор и задиры"></canvas><canvas id="arm" aria-hidden="true"></canvas><div id="ui"></div>';
 const ui = document.querySelector<HTMLDivElement>('#ui')!;
 const canvas = document.querySelector<HTMLCanvasElement>('#scene')!;
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false });
@@ -356,53 +357,11 @@ function animateLeaving(dt: number, time: number) {
 }
 
 // -------------------------------------------------------------------------------------------------
-// 2D POV ARM OVERLAY (grease-pencil frames + stretchy ink hose) rendered in screen space on top.
-// The glove always stops at the front-most surface along the aim ray, so nothing can be in front of it.
+// FIRST-PERSON ARMS: vector rubber hoses inked on a 2D overlay canvas (see arm.ts), unaffected by scene lighting.
+// The glove always stops at the clicked point; the free-aim ray decides what it actually struck.
 // -------------------------------------------------------------------------------------------------
-const hud = new THREE.Scene();
-const hudCamera = new THREE.OrthographicCamera(0, 1, 1, 0, -10, 10);
-function spriteFrom(file: string, crop: [number, number, number, number], anchor: [number, number]) {
-  const [sx, sy, sw, sh] = crop; const c = document.createElement('canvas'); c.width = sw; c.height = sh;
-  const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace;
-  const img = new Image(); img.onload = () => { c.getContext('2d')!.drawImage(img, sx, sy, sw, sh, 0, 0, sw, sh); tex.needsUpdate = true; }; img.src = asset(file);
-  // Unit-height quad whose origin is the anchor pixel (shoulder edge / cuff opening).
-  const geometry = new THREE.PlaneGeometry(sw / sh, 1); geometry.translate((.5 - (anchor[0] - sx) / sw) * sw / sh, ((anchor[1] - sy) / sh - .5), 0);
-  const mesh = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthTest: false, depthWrite: false }));
-  hud.add(mesh); return mesh;
-}
-// Rest pose anchored at its bottom-right corner; flight glove anchored at the cuff, art angle ≈ 48°/52°.
-const restArm = spriteFrom('pov_windup.png', [212, 212, 300, 268], [512, 480]);
-const recoilArm = spriteFrom('pov_recoil.png', [28, 200, 450, 280], [478, 480]);
-const flightGlove = spriteFrom('pov_thrust.png', [200, 128, 212, 165], [276, 236]);
-const impactGlove = spriteFrom('pov_impact.png', [100, 64, 380, 380], [189, 288]);
-const GLOVE_ANGLE = { flight: 48 * Math.PI / 180, impact: 52 * Math.PI / 180 };
-
-const HOSE_SEGMENTS = 28;
-function ribbon(color: string, order: number) {
-  const geometry = new THREE.BufferGeometry();
-  geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array((HOSE_SEGMENTS + 1) * 2 * 3), 3));
-  const index: number[] = []; for (let i = 0; i < HOSE_SEGMENTS; i++) { const a = i * 2; index.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); }
-  geometry.setIndex(index);
-  const mesh = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial({ color, side: THREE.DoubleSide, depthTest: false, depthWrite: false, transparent: true }));
-  mesh.renderOrder = order; mesh.frustumCulled = false; hud.add(mesh); return mesh;
-}
-const hoseInk = ribbon('#151715', 1), hoseFill = ribbon('#898989', 2), hoseShine = ribbon('#b3b3ad', 3);
-const speedLines = [ribbon('#151715', 1), ribbon('#151715', 1)];
-flightGlove.renderOrder = 4; impactGlove.renderOrder = 5; restArm.renderOrder = 6; recoilArm.renderOrder = 6;
-const heldSprite = new THREE.Mesh(new THREE.PlaneGeometry(BODY.bottle.w / BODY.bottle.h, 1), new THREE.MeshBasicMaterial({ map: textures.bottle, transparent: true, depthTest: false, depthWrite: false }));
-heldSprite.renderOrder = 7; hud.add(heldSprite);
-
-function setRibbon(mesh: THREE.Mesh, a: THREE.Vector2, ctrl: THREE.Vector2, b: THREE.Vector2, w0: number, w1: number, shift = 0) {
-  const pos = mesh.geometry.getAttribute('position') as THREE.BufferAttribute; const p = new THREE.Vector2(), tan = new THREE.Vector2();
-  for (let i = 0; i <= HOSE_SEGMENTS; i++) {
-    const t = i / HOSE_SEGMENTS, u = 1 - t;
-    p.set(u * u * a.x + 2 * u * t * ctrl.x + t * t * b.x, u * u * a.y + 2 * u * t * ctrl.y + t * t * b.y);
-    tan.set(2 * u * (ctrl.x - a.x) + 2 * t * (b.x - ctrl.x), 2 * u * (ctrl.y - a.y) + 2 * t * (b.y - ctrl.y)).normalize();
-    const nx = -tan.y, ny = tan.x, w = (w0 + (w1 - w0) * t) / 2, o = shift * w * 2;
-    pos.setXYZ(i * 2, p.x + nx * (w + o), p.y + ny * (w + o), 0); pos.setXYZ(i * 2 + 1, p.x - nx * (w - o), p.y - ny * (w - o), 0);
-  }
-  pos.needsUpdate = true;
-}
+const armCanvas = document.querySelector<HTMLCanvasElement>('#arm')!;
+const armCtx = armCanvas.getContext('2d')!;
 
 /** Comic impact bursts per outcome, procedurally inked to match the grease-pencil line weight. */
 function burstTexture(word: string, fill: string, accent: string, spikes = 12) {
@@ -413,15 +372,13 @@ function burstTexture(word: string, fill: string, accent: string, spikes = 12) {
   g.beginPath(); for (let i = 0; i <= spikes * 2; i++) { const r = i % 2 ? 36 : 70, a = i / (spikes * 2) * Math.PI * 2 + .2; g.lineTo(Math.cos(a) * r, Math.sin(a) * r); }
   g.closePath(); g.fillStyle = accent; g.fill();
   g.rotate(-.12); g.font = '900 46px Arial'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.lineWidth = 8; g.strokeStyle = '#151715'; g.strokeText(word, 0, 2); g.fillStyle = '#fffbe8'; g.fillText(word, 0, 2);
-  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
+  return c;
 }
-const bursts: Record<string, THREE.Texture> = {
+const bursts: Record<string, HTMLCanvasElement> = {
   hit: burstTexture('БАМ!', '#fff6d8', '#f359a4'), throw: burstTexture('ХРЯСЬ!', '#fff6d8', '#c7f653'),
   protected: burstTexture('АЙ!', '#ffd3d3', '#e2324e', 9), cover: burstTexture('ТУК!', '#e9dcc0', '#9c7a54', 8),
   smash: burstTexture('ДЗЫНЬ!', '#fff6d8', '#f6c453', 14), miss: burstTexture('ВЖУХ', '#eef0ea', '#b9c0b5', 7),
 };
-const burstMesh = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ map: bursts.hit, transparent: true, depthTest: false, depthWrite: false }));
-burstMesh.renderOrder = 3; hud.add(burstMesh);
 
 // -------------------------------------------------------------------------------------------------
 // FREE AIM: the strike goes exactly where the pointer is. No magnetism, no snapping.
@@ -431,7 +388,7 @@ const pointer = new THREE.Vector2(0, 0);
 let lastMode = '';
 let lastHp = game.hp;
 const DURATION = .42, ARRIVE = .36, RELEASE = .62;
-interface Swing { action: Action; throwing: boolean; ray: { origin: Vec3; direction: Vec3 }; shot: Shot; phase: number; resolved: boolean; outcome?: Outcome; held: BodyKind | null; staminaBefore: number; staminaAfter: number; }
+interface Swing { action: Action; throwing: boolean; spot: Pt; ray: { origin: Vec3; direction: Vec3 }; shot: Shot; phase: number; resolved: boolean; outcome?: Outcome; held: BodyKind | null; staminaBefore: number; staminaAfter: number; }
 let swing: Swing | null = null;
 let shake = 0, hitstop = 0, timeScale = 1;
 const strikes: { action: Action; outcome: Outcome; kind: string; id: number | string | null; staminaBefore: number; staminaAfter: number }[] = [];
@@ -443,9 +400,9 @@ function resize() {
   camera.position.set(rig.position.x, rig.position.y, rig.position.z); camera.lookAt(rig.look.x, rig.look.y, rig.look.z);
   if (game.mode === 'menu' || game.mode === 'select') { camera.position.x -= innerWidth < 650 ? 0 : 1.2; camera.lookAt(rig.look.x - (innerWidth < 650 ? 0 : 1.8), rig.look.y, rig.look.z); }
   camera.updateMatrixWorld();
-  hudCamera.right = innerWidth; hudCamera.top = innerHeight; hudCamera.updateProjectionMatrix();
+  const dpr = Math.min(devicePixelRatio, 2); armCanvas.width = Math.round(innerWidth * dpr); armCanvas.height = Math.round(innerHeight * dpr);
 }
-addEventListener('resize', resize);
+addEventListener('resize', () => { resize(); measureControls(); });
 
 function updateCrosshair() {
   const crosshair = document.querySelector<HTMLElement>('.crosshair');
@@ -469,7 +426,8 @@ function perform(action: Action) {
   if (!game.spend(action)) { updateHud(); sound('ui'); return; }
   const ray = aimRay(pointer);
   sound('whoosh');
-  swing = { action, throwing, ray, shot: resolveShot(ray.origin, ray.direction, currentHittables()), phase: 0, resolved: false, held, staminaBefore, staminaAfter: game.stamina };
+  const spot = { x: (pointer.x + 1) / 2 * innerWidth, y: (1 - pointer.y) / 2 * innerHeight };
+  swing = { action, throwing, spot, ray, shot: resolveShot(ray.origin, ray.direction, currentHittables()), phase: 0, resolved: false, held, staminaBefore, staminaAfter: game.stamina };
   if (!motion()) land(swing);
   updateHud();
 }
@@ -568,6 +526,7 @@ function renderUi() {
   }
   syncActors(runtime);
   if (mode !== 'play') { ui.insertAdjacentHTML('beforeend', settingsUi()); bindSettings(renderUi); }
+  measureControls();
 }
 
 function toScreen(p: Vec3) { const v = new THREE.Vector3(p.x, p.y, p.z).project(camera); return { x: (v.x + 1) / 2 * innerWidth, y: (1 - v.y) / 2 * innerHeight }; }
@@ -603,66 +562,50 @@ function updateHud() {
   const grab = document.getElementById('grab'); if (grab) grab.innerHTML = game.held ? 'БРОСАЙ ↗<small>В ЗАДИРУ · ' + costOf('grab', true) + ' СИЛ</small>' : 'ХВАТАЙ ◎<small>ПКМ / E · 12 СИЛ</small>';
 }
 
-const ease = (v: number) => 1 - (1 - v) ** 3;
-const backOut = (v: number) => { const c = 1.9, u = v - 1; return 1 + (c + 1) * u ** 3 + c * u ** 2; };
+/** The on-screen buttons the resting gloves must not hide behind (phones put them full-width at the bottom). */
+let avoidRect: Avoid | null = null, measureTick = 0;
+function measureControls() {
+  const r = document.querySelector('.controls')?.getBoundingClientRect();
+  avoidRect = r && r.width ? { left: r.left, right: r.right, top: r.top } : null;
+  // The status pill is centred text in a wide box: measure the visible text, not the box.
+  const msg = document.getElementById('message');
+  if (avoidRect && msg?.textContent) {
+    const range = document.createRange(); range.selectNodeContents(msg); const t = range.getBoundingClientRect();
+    if (t.width) avoidRect = { left: Math.min(avoidRect.left, t.left - 18), right: Math.max(avoidRect.right, t.right + 18), top: Math.min(avoidRect.top, t.top - 10) };
+  }
+}
 function drawArm(time: number) {
-  const W = innerWidth, H = innerHeight, unit = Math.min(W, H);
-  const show = game.mode === 'play' || game.mode === 'pause';
-  const restSize = unit * (W < 650 ? .34 : .36);
-  const bob = motion() ? Math.sin(time * 2.4) * unit * .008 : 0;
-  const shoulder = new THREE.Vector2(W - restSize * .32, -restSize * .1);
-  for (const m of [restArm, recoilArm, flightGlove, impactGlove, hoseInk, hoseFill, hoseShine, burstMesh, heldSprite, ...speedLines]) m.visible = false;
-  if (!show) return;
-  const s = swing;
-  const k = s ? s.phase : 1;
-  if (!s || k >= .97) {
-    restArm.visible = true; restArm.scale.setScalar(restSize); restArm.position.set(W + restSize * .02, bob - restSize * .03, 0); restArm.rotation.z = 0;
-  } else if (k < .08) {
-    // Anticipation: the rest arm cocks back before the rubber launch.
-    const a = k / .08; restArm.visible = true; restArm.scale.setScalar(restSize * (1 + a * .06)); restArm.position.set(W + restSize * (.02 + a * .08), -restSize * (.03 + a * .1), 0); restArm.rotation.z = -a * .08;
-  } else if (k > .84) {
-    const a = (k - .84) / .13; recoilArm.visible = true; recoilArm.scale.setScalar(restSize * .95); recoilArm.position.set(W + restSize * .05, -restSize * (.25 - a * .2), 0);
+  const W = innerWidth, H = innerHeight, g = armCtx, dpr = armCanvas.width / Math.max(1, W);
+  g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(0, 0, armCanvas.width, armCanvas.height);
+  if (game.mode !== 'play' && game.mode !== 'pause') return;
+  g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  const { ink, rim } = armMetrics(W, H), avoid = avoidRect, s = swing, k = s ? s.phase : 1;
+  const active = s && k < 1 ? sideFor(s.spot, W) : 0;
+  // Impact burst sits behind the glove so the fist stays readable on contact.
+  if (s && s.resolved && k < .8) {
+    const a = (k - ARRIVE) / (.8 - ARRIVE), key = s.outcome && bursts[s.outcome] ? s.outcome : 'miss';
+    const size = (key === 'miss' ? .9 : 1.6) * armMetrics(W, H).r * 2 * Math.max(.5, Math.min(1.2, 6.5 / Math.max(3, s.shot.distance))) * (a < .2 ? .6 + a * 3 : 1.2 - a * .2);
+    g.save(); g.globalAlpha = Math.max(0, 1 - Math.max(0, a - .5) * 2); g.translate(s.spot.x, s.spot.y); g.rotate(-s.ray.direction.x * .4);
+    g.drawImage(bursts[key], -size / 2, -size / 2, size, size); g.restore();
   }
-  if (s && k >= .08 && k <= .84) {
-    const aimAt = toScreen(s.shot.point); const tip = new THREE.Vector2(aimAt.x, H - aimAt.y);
-    // Rubbery launch: overshoots past the impact point and snaps back onto it right at arrival.
-    const extend = k < ARRIVE ? backOut((k - .08) / (ARRIVE - .08)) : k < RELEASE ? 1 : 1 - ease((k - RELEASE) / (.84 - RELEASE)) * .82;
-    const fist = shoulder.clone().lerp(tip, extend);
-    const dist = Math.max(3, s.shot.distance);
-    const impactSize = THREE.MathUtils.clamp(unit * 1.35 / dist, unit * .07, unit * .3);
-    const glove = THREE.MathUtils.lerp(restSize * .55, impactSize, Math.min(1, extend * 1.1));
-    const dir = fist.clone().sub(shoulder); const len = Math.max(1, dir.length()); dir.divideScalar(len);
-    // Rubber-hose S-curl: sags with distance, wobbles on the snap-back.
-    const side = new THREE.Vector2(-dir.y, dir.x).multiplyScalar(Math.sign(dir.x || 1));
-    const curl = (k < ARRIVE ? .2 : k < RELEASE ? Math.sin((k - ARRIVE) * 60) * .05 : -.18) * len;
-    const ctrl = shoulder.clone().lerp(fist, .45).addScaledVector(side, curl);
-    const w0 = restSize * .26, w1 = glove * .26, inkW = Math.max(3, unit * .006);
-    setRibbon(hoseInk, shoulder, ctrl, fist, w0 + inkW * 2, w1 + inkW * 2); setRibbon(hoseFill, shoulder, ctrl, fist, w0, w1); setRibbon(hoseShine, shoulder, ctrl, fist, w0 * .16, w1 * .16, .22);
-    hoseInk.visible = hoseFill.visible = hoseShine.visible = true;
-    if (k < ARRIVE && motion()) speedLines.forEach((line, i) => {
-      const off = side.clone().multiplyScalar((i ? -1 : 1) * (w1 * .9 + 8)); line.visible = true;
-      const a = fist.clone().addScaledVector(dir, -Math.min(len * .35, unit * .28)).add(off), b = fist.clone().addScaledVector(dir, -glove * .45).add(off);
-      setRibbon(line, a, a.clone().lerp(b, .5), b, 1.5, 3);
-    });
-    const angle = Math.atan2(dir.y, dir.x), left = dir.x < 0;
-    const impacting = s.resolved && k < RELEASE + .06 && s.outcome !== 'miss' && s.outcome !== 'grab';
-    const gloveMesh = impacting ? impactGlove : flightGlove, base = impacting ? GLOVE_ANGLE.impact : GLOVE_ANGLE.flight;
-    gloveMesh.visible = true; gloveMesh.position.set(fist.x, fist.y, 0);
-    const scale = glove * (impacting ? 1.9 : 1) * (impacting && k < ARRIVE + .05 ? 1.12 : 1);
-    gloveMesh.scale.set(left ? -scale : scale, scale, 1);
-    gloveMesh.rotation.z = left ? angle - (Math.PI - base) : angle - base;
-    const held = s.throwing && s.held && k < ARRIVE;
-    if (held) { heldSprite.visible = true; (heldSprite.material as THREE.MeshBasicMaterial).map = textures[s.held!]; heldSprite.scale.setScalar(glove * 1.2); heldSprite.position.set(fist.x, fist.y + glove * .3, 0); }
-    if (s.resolved && k < .8) {
-      const a = (k - ARRIVE) / (.8 - ARRIVE); const key = s.outcome && bursts[s.outcome] ? s.outcome : 'miss';
-      const mat = burstMesh.material as THREE.MeshBasicMaterial; mat.map = bursts[key]; mat.opacity = 1 - Math.max(0, a - .5) * 2;
-      const pop = (key === 'miss' ? .9 : 1.6) * impactSize * (a < .2 ? .6 + a * 3 : 1.2 - a * .2);
-      burstMesh.visible = true; burstMesh.scale.setScalar(pop); burstMesh.position.set(tip.x, tip.y, 0); burstMesh.rotation.z = (s.ray.direction.x) * .4;
+  for (const side of [-1, 1] as const) {
+    const bob = motion() ? Math.sin(time * 2.4 + (side > 0 ? 0 : 1.3)) * H * .006 : 0;
+    let arm = restPose(side, W, H, avoid, bob);
+    if (s && side === active) arm = punchPose(side, W, H, s.spot, k, { arrive: ARRIVE, release: RELEASE }, { depth: 6.5 / Math.max(3, s.shot.distance), grab: s.action === 'grab', throwing: s.throwing, avoid });
+    const holding = game.held && side === 1 && !(s && s.throwing && active === 1 && k >= ARRIVE);
+    if (holding) arm = { ...arm, open: true };
+    // Speed lines trail the fist while it flies out.
+    if (s && side === active && k > .08 && k < ARRIVE && motion()) {
+      const dx = arm.glove.x - arm.ctrl.x, dy = arm.glove.y - arm.ctrl.y, l = Math.hypot(dx, dy) || 1, ux = dx / l, uy = dy / l;
+      g.strokeStyle = '#151715'; g.lineWidth = Math.max(2, ink * .5); g.lineCap = 'round';
+      for (const o of [-1, 1]) { const ox = -uy * o * arm.r * 1.1, oy = ux * o * arm.r * 1.1; g.beginPath(); g.moveTo(arm.glove.x - ux * arm.r * 3.2 + ox, arm.glove.y - uy * arm.r * 3.2 + oy); g.lineTo(arm.glove.x - ux * arm.r * 1.6 + ox, arm.glove.y - uy * arm.r * 1.6 + oy); g.stroke(); }
     }
-  }
-  if (game.held && !(s && s.throwing && k < .97)) {
-    heldSprite.visible = true; (heldSprite.material as THREE.MeshBasicMaterial).map = textures[game.held];
-    heldSprite.scale.setScalar(restSize * .42); heldSprite.position.set(W - restSize * .45, restSize * .52 + bob, 0); heldSprite.rotation.z = motion() ? Math.sin(time * 2) * .07 : 0;
+    inkArm(g, arm, ink, rim);
+    const item = holding ? game.held : s && s.throwing && s.held && side === active && k < ARRIVE ? s.held : null;
+    if (item) {
+      const img = textures[item].image as CanvasImageSource, h = arm.r * 2.2, w = h * BODY[item].w / BODY[item].h;
+      g.save(); g.translate(arm.glove.x, arm.glove.y - arm.r * .5); g.rotate(motion() ? Math.sin(time * 2) * .07 : 0); g.drawImage(img, -w / 2, -h * .8, w, h); g.restore();
+    }
   }
 }
 
@@ -680,7 +623,7 @@ function frame() {
   if (lastHp > game.hp && motion()) { const flash = document.createElement('div'); flash.className = 'flash'; ui.append(flash); setTimeout(() => flash.remove(), 400); }
   lastHp = game.hp;
   syncActors(runtime);
-  if (game.mode === 'play') updateHud();
+  if (game.mode === 'play') { updateHud(); if ((measureTick -= dt) <= 0) { measureTick = .25; measureControls(); } }
 
   if (swing && game.mode !== 'pause') {
     swing.phase = Math.min(1, swing.phase + dt / DURATION);
@@ -701,8 +644,6 @@ function frame() {
   renderer.clear();
   renderer.render(scene, camera);
   drawArm(runtime);
-  renderer.clearDepth();
-  renderer.render(hud, hudCamera);
 }
 function resizeCameraShake(dt: number) {
   const rig = cameraFor(innerWidth, innerHeight);
