@@ -4,6 +4,7 @@ import { resolveShot, type Hittable, type Shot, type Vec3 } from './aim';
 import { LEVELS, BODY, WINDUP, pose, dogWalk, hittables, cameraFor, type Cover, type BodyKind } from './layout';
 import './style.css';
 import { makeStreet } from './street';
+import { LOOKS, greyscaleWorld, greyCanvas, greyColor } from './palette';
 import { armMetrics, restPose, punchPose, sideFor, drawArm as inkArm, type Avoid, type Pt } from './arm';
 import { reducedMotion, unlockAudio, sound, settingsUi, bindSettings } from './preferences';
 
@@ -12,8 +13,13 @@ let raw: string | null = null;
 try { raw = localStorage.getItem(KEY); } catch { raw = null; }
 const game = new Game(readProgress(raw), p => { try { localStorage.setItem(KEY, JSON.stringify(p)); } catch { game.message = 'Сохранение недоступно в этом браузере.'; } });
 const app = document.querySelector<HTMLDivElement>('#app')!;
-app.innerHTML = '<canvas id="scene" aria-label="Трёхмерный двор и задиры"></canvas><canvas id="arm" aria-hidden="true"></canvas><div id="ui"></div>';
+app.innerHTML = '<canvas id="scene" aria-label="Трёхмерный двор и задиры"></canvas><div id="film" aria-hidden="true"></div><canvas id="arm" aria-hidden="true"></canvas><div id="ui"></div>';
 const ui = document.querySelector<HTMLDivElement>('#ui')!;
+{ // Old-film grain + vignette over the scene (under the arms and HUD): one static noise tile, drifted by CSS.
+  const c = document.createElement('canvas'); c.width = c.height = 128; const g = c.getContext('2d');
+  if (g) { const d = g.createImageData(128, 128); for (let i = 0; i < d.data.length; i += 4) { const v = Math.random() * 255; d.data[i] = d.data[i + 1] = d.data[i + 2] = v; d.data[i + 3] = 255; } g.putImageData(d, 0, 0); }
+  document.getElementById('film')?.style.setProperty('--grain', `url(${c.toDataURL()})`);
+}
 const canvas = document.querySelector<HTMLCanvasElement>('#scene')!;
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false });
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
@@ -23,29 +29,26 @@ renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.autoClear = false;
 renderer.info.autoReset = false;
 const scene = new THREE.Scene();
-scene.background = new THREE.Color('#d7dbd2');
+scene.background = new THREE.Color('#e2e2e2');
 // Atmospheric perspective: the background layer fades toward the sky colour so depth reads at a glance.
-scene.fog = new THREE.Fog('#d7dbd2', 14, 42);
+scene.fog = new THREE.Fog('#e2e2e2', 14, 42);
 const camera = new THREE.PerspectiveCamera(50, 1, .3, 90);
-const hemi = new THREE.HemisphereLight('#fff9e4', '#6f766e', 2.4); scene.add(hemi);
-const sun = new THREE.DirectionalLight('#fff5df', 3.0); sun.position.set(-7, 14, 10); sun.castShadow = true;
+const hemi = new THREE.HemisphereLight('#ffffff', '#6e6e6e', 2.4); scene.add(hemi);
+const sun = new THREE.DirectionalLight('#ffffff', 3.0); sun.position.set(-7, 14, 10); sun.castShadow = true;
 sun.shadow.mapSize.set(2048, 2048); sun.shadow.bias = -.0006; sun.shadow.normalBias = .02;
 sun.shadow.camera.left = -16; sun.shadow.camera.right = 16; sun.shadow.camera.top = 16; sun.shadow.camera.bottom = -16;
 scene.add(sun);
-function skyTexture(stops: [number, string][]) {
+function skyTexture(stops: readonly (readonly [number, string])[]) {
   const c = document.createElement('canvas'); c.width = 4; c.height = 256; const g = c.getContext('2d')!;
   const grad = g.createLinearGradient(0, 0, 0, 256); for (const [o, col] of stops) grad.addColorStop(o, col);
   g.fillStyle = grad; g.fillRect(0, 0, 4, 256); const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
 }
-/** Level 1: quiet sunny courtyard. Level 2: noisy alley at dusk — low orange sun, violet haze, neon. */
-const LOOKS = {
-  1: { sky: skyTexture([[0, '#8fcbe0'], [.55, '#e3eed8'], [1, '#f4ecd2']]), fog: '#e2e6d4', near: 16, far: 48, hemi: ['#fff9e4', '#6f766e', 2.4], sun: ['#fff5df', 3.0], sunAt: [-7, 14, 10] },
-  2: { sky: skyTexture([[0, '#21183f'], [.4, '#7a3a6c'], [.72, '#e86f4f'], [1, '#ffbf68']]), fog: '#5d3c62', near: 11, far: 36, hemi: ['#ffb28a', '#2b2445', 1.35], sun: ['#ff9356', 2.6], sunAt: [13, 4.5, 6] },
-} as const;
+/** Grey film looks (palette.ts): level 1 bright daylight, level 2 dark dusk with lamp pools. */
+const skies = { 1: skyTexture(LOOKS[1].sky), 2: skyTexture(LOOKS[2].sky) };
 const shownLevel = () => game.mode === 'menu' || game.mode === 'select' ? 1 : game.level;
 function applyLook(level: number) {
   const L = LOOKS[level === 2 ? 2 : 1];
-  scene.background = L.sky; (scene.fog as THREE.Fog).color.set(L.fog); (scene.fog as THREE.Fog).near = L.near; (scene.fog as THREE.Fog).far = L.far;
+  scene.background = skies[level === 2 ? 2 : 1]; (scene.fog as THREE.Fog).color.set(L.fog); (scene.fog as THREE.Fog).near = L.near; (scene.fog as THREE.Fog).far = L.far;
   hemi.color.set(L.hemi[0]); hemi.groundColor.set(L.hemi[1]); hemi.intensity = L.hemi[2];
   sun.color.set(L.sun[0]); sun.intensity = L.sun[1]; sun.position.set(L.sunAt[0], L.sunAt[1], L.sunAt[2]);
 }
@@ -215,6 +218,10 @@ function showFrame(v: ActorView, map: THREE.Texture) {
 signs.push(art('sign'), art('sign', 2));
 const sign = new THREE.Mesh(new THREE.PlaneGeometry(1.6, 1.25), new THREE.MeshBasicMaterial({ map: signs[0], alphaTest: .5 }));
 sign.position.set(-6.3, 2.5, -8.8); levelGroups[1].add(sign);
+// The world is B/W film; only characters, grabbable props, the player's arms and FX keep colour.
+for (const t of signs) greyCanvas(t.image as HTMLCanvasElement);
+for (const level of [1, 2]) greyscaleWorld(levelGroups[level]);
+greyColor(ink.color);
 
 function ringTexture() {
   const c = document.createElement('canvas'); c.width = c.height = 128; const g = c.getContext('2d')!;
@@ -223,7 +230,7 @@ function ringTexture() {
   const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
 }
 const ring = ringTexture();
-const blob = new THREE.MeshBasicMaterial({ color: '#253022', transparent: true, opacity: .28, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
+const blob = new THREE.MeshBasicMaterial({ color: '#262626', transparent: true, opacity: .28, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
 
 /** Small inked overlay textures: halo, dizzy stars, sad rain-cloud. */
 function overlayTexture(draw: (g: CanvasRenderingContext2D) => void, w = 256, h = 128) {

@@ -15,3 +15,6 @@ html[data-reduced-motion=true] .callout{animation:none!important;opacity:1}
 .progress,.message{background:#f4f1e8ee;border:2px solid #222;border-radius:30px;padding:6px 14px;text-shadow:none;width:max-content;max-width:90vw}
 .message{left:50%;right:auto;transform:translateX(-50%)}
 #arm{position:fixed;inset:0;width:100%;height:100%;display:block;pointer-events:none}
+#film{position:fixed;inset:0;pointer-events:none;background:radial-gradient(ellipse at center,transparent 58%,rgba(0,0,0,.34) 100%)}
+#film:after{content:'';position:absolute;inset:-64px;background-image:var(--grain);opacity:.06;mix-blend-mode:overlay;animation:grain .5s steps(4) infinite}
+@keyframes grain{0%{transform:translate(0,0)}25%{transform:translate(-37px,21px)}50%{transform:translate(19px,-43px)}75%{transform:translate(-11px,33px)}100%{transform:translate(0,0)}}

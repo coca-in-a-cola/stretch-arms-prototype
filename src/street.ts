@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 
-/** Level 2 backdrop: a noisy alley at dusk — tall dark silhouettes, glowing windows, neon and string lights. */
+/** Level 2 backdrop: a noisy alley at dusk — tall dark silhouettes, glowing windows, neon and string lights.
+ * Built with the original paint; main.ts turns it greyscale (palette.ts) like the rest of the world. */
 export function makeStreet() {
   const street = new THREE.Group();
   function block(size: readonly [number, number, number], at: readonly [number, number, number], color: string, glow = false) {
@@ -30,6 +31,8 @@ export function makeStreet() {
       block([.16, 6, .16], [side * 4.9, 3, z], '#1f1a2a');
       block([1.6, .15, .15], [side * 4.25, 6, z], '#1f1a2a');
       block([.65, .14, .45], [side * 3.5, 5.85, z], '#fff1b2', true);
+      // Each lamp throws a hard pool of light on the dark street (the B/W dusk reads by contrast, not hue).
+      const pool = new THREE.PointLight('#ffffff', 160, 12, 2); pool.position.set(side * 3.3, 5.2, z); street.add(pool);
     }
   }
   // Distant skyline silhouettes at the end of the alley.
