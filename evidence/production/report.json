@@ -1,10 +1,10 @@
 {
-  "url": "http://127.0.0.1:42901/",
+  "url": "http://127.0.0.1:38453/",
   "mutableHooks": false,
   "consoleErrors": [],
   "flows": [
-    "desktop natural 9-hit win, full HP, unlock and persistence",
-    "touch natural 9-hit win, full HP and level2 hit",
+    "desktop natural 9-hit win (retry when an enemy ducks), hit-moment capture, unlock and persistence",
+    "touch natural 9-hit win (>=4 hearts) and level2 hit",
     "level2 natural five-deadline loss and full-HP retry",
     "pause freezes public state",
     "real CDP background freeze auto-pauses; public state stays frozen on return",
@@ -13,23 +13,19 @@
     "390x844 portrait and 844x390 landscape controls >=44px"
   ],
   "screenshots": [
-    "desktop-level1.png",
-    "desktop-level2.png",
-    "desktop-loss.png",
-    "desktop-menu.png",
-    "desktop-pause.png",
-    "desktop-win.png",
-    "landscape-level2.png",
+    "hit-moment.png",
     "landscape-pause.png",
-    "level1-depth-impact.png",
-    "level1-depth-punch.png",
-    "level2-depth-impact.png",
-    "level2-depth-punch.png",
-    "portrait-depth.png",
-    "portrait-level1.png",
+    "landscape.png",
+    "level1.png",
+    "level2.png",
+    "loss.png",
+    "menu.png",
+    "pause.png",
     "portrait-level2.png",
     "portrait-menu.png",
     "portrait-win.png",
-    "webgl-fallback.png"
+    "portrait.png",
+    "webgl-fallback.png",
+    "win.png"
   ]
 }
