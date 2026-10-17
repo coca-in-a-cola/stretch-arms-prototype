@@ -46,11 +46,13 @@ export function greyscaleWorld(root: THREE.Object3D) {
 /**
  * Per-level light and sky, all neutral greys. Level 1: bright daylight, soft contrast.
  * Level 2: dusk — dark sky with a pale horizon, low light, short fog; lamps and windows make the pools.
+ * Level 3: the bar — low smoky interior, hanging lamps make the pools.
  */
 export const LOOKS = {
   1: { sky: [[0, '#a9a9a9'], [.55, '#e2e2e2'], [1, '#f1f1f1']], fog: '#e0e0e0', near: 16, far: 48, hemi: ['#ffffff', '#6e6e6e', 2.4], sun: ['#ffffff', 3.0], sunAt: [-7, 14, 10] },
   2: { sky: [[0, '#0d0d0d'], [.45, '#2c2c2c'], [.78, '#6a6a6a'], [1, '#bdbdbd']], fog: '#2e2e2e', near: 10, far: 34, hemi: ['#b4b4b4', '#1c1c1c', .9], sun: ['#e8e8e8', 1.9], sunAt: [13, 4.5, 6] },
-} as const satisfies Record<1 | 2, { sky: readonly (readonly [number, string])[]; fog: string; near: number; far: number; hemi: readonly [string, string, number]; sun: readonly [string, number]; sunAt: readonly [number, number, number] }>;
+  3: { sky: [[0, '#0b0b0b'], [.6, '#1e1e1e'], [1, '#3a3a3a']], fog: '#1a1a1a', near: 20, far: 48, hemi: ['#dcdcdc', '#2a2a2a', 1.5], sun: ['#ffffff', 2.3], sunAt: [-4, 9, 9] },
+} as const satisfies Record<1 | 2 | 3, { sky: readonly (readonly [number, string])[]; fog: string; near: number; far: number; hemi: readonly [string, string, number]; sun: readonly [string, number]; sunAt: readonly [number, number, number] }>;
 
 /** The player's own sleeves: cobalt, so the arm reads as "active" against the grey street. */
 export const SLEEVE = { base: '#2c55c9', shine: '#6d93ee', dark: '#1a3486' } as const;

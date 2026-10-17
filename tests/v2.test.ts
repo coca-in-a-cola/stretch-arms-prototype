@@ -47,7 +47,7 @@ describe('honest free aim: the hit is resolved where the fist lands', () => {
 });
 
 describe('depth layers: occlusion ordering and no z-fighting', () => {
-  for (const level of [1, 2]) {
+  for (const level of [1, 2, 3]) {
     const L = LEVELS[level];
     test(`level ${level}: no actor sprite plane is coplanar with or inside any cover`, () => {
       for (const s of L.slots) for (const c of L.covers) {

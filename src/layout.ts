@@ -3,18 +3,34 @@
 import type { Hittable, Vec3 } from './aim';
 
 export type Layer = 'foreground' | 'midground' | 'background';
-export type CoverLook = 'barrel' | 'crate' | 'plank' | 'rail' | 'post' | 'wall' | 'interior' | 'dumpster' | 'pallet' | 'van' | 'barrier';
+export type CoverLook = 'barrel' | 'crate' | 'plank' | 'rail' | 'post' | 'wall' | 'interior' | 'dumpster' | 'pallet' | 'van' | 'barrier' | 'piano' | 'table' | 'counter' | 'shelves';
+/** Who peeks from a slot: the yard cat, or one of the bar patrons (level 3). */
+export type Skin = 'cat' | 'walrus' | 'bulldog' | 'weasel';
+export type PropKind = 'bottle' | 'barrel' | 'hat' | 'mug' | 'whiskey';
 export interface Cover { id: string; look: CoverLook; layer: Layer; min: Vec3; max: Vec3; color: string; }
 /** Enemy spawn point behind a cover. `hide` is where the sprite waits fully occluded; it slides/rises to `x,y`. */
-export interface Slot { x: number; y: number; z: number; layer: Layer; hideX: number; hideY: number; }
-export interface LevelLayout { covers: Cover[]; slots: Slot[]; order: number[]; dog: Vec3; prop: Vec3; deadline: number; goal: number; }
+export interface Slot { x: number; y: number; z: number; layer: Layer; hideX: number; hideY: number; skin?: Skin; }
+export interface LevelLayout {
+  covers: Cover[]; slots: Slot[]; order: number[]; dog: Vec3; prop: Vec3; deadline: number; goal: number;
+  /** Throwables that respawn on the floor, alternating. */
+  props?: [PropKind, PropKind];
+  /** Secret hat spot (on a stool) and the landing zone it must be thrown onto: the top band of a cover. */
+  hat?: Vec3; landing?: { cover: string; band: number };
+}
 
 export const BODY = {
   enemy: { w: 1.52, h: 1.9, inset: [.2, .82, .03, .95] },
   dog: { w: 1.1, h: 1.375, inset: [.14, .9, .03, .95] },
   bottle: { w: .62, h: .82, inset: [.26, .74, 0, .96] },
   barrel: { w: .7, h: .82, inset: [.1, .9, 0, .96] },
+  hat: { w: .78, h: .975, inset: [.03, .97, 0, .54] },
+  mug: { w: .56, h: .7, inset: [.03, .97, 0, .97] },
+  whiskey: { w: .5, h: .82, inset: [.28, .72, 0, .97] },
 } as const;
+/** Bar patrons fill their frames differently (cut boxes from tools/cut_sprites.py). */
+export const SKIN_INSET: Record<Skin, readonly [number, number, number, number]> = {
+  cat: BODY.enemy.inset, walrus: [.08, .92, .03, .93], bulldog: [.14, .86, .03, .75], weasel: [.22, .78, .03, .78],
+};
 export type BodyKind = keyof typeof BODY;
 /** Top of the visible gen_dog_walk.png frame, as a fraction of the sprite height. */
 export const DOG_WALK_TOP = .82;
@@ -96,7 +112,40 @@ const level2: LevelLayout = {
   prop: { x: .6, y: 0, z: 3.8 },
 };
 
-export const LEVELS: Record<number, LevelLayout> = { 1: level1, 2: level2 };
+/** Level 3, the secret bar: piano and a draped table in front, the long counter mid-ground, a swinging door at the back. */
+const level3: LevelLayout = {
+  goal: 12, deadline: 5.2,
+  covers: [
+    box('piano', 'piano', 'foreground', -2.75, 0, 3.0, 1.9, 1.3, .75, '#3b2c24'),
+    box('table', 'table', 'foreground', 2.95, 0, 3.1, 1.3, 1.05, 1.1, '#ece6d2'),
+    box('counter', 'counter', 'midground', .3, 0, -2.4, 6.4, 1.15, .8, '#6b4a32'),
+    box('shelves', 'shelves', 'background', -.4, 0, -6.4, 5.2, 2.9, .5, '#2e241c'),
+    box('doorwall', 'wall', 'background', 6.7, 0, -7.4, 2.6, 3.4, .3, '#4a3f36'),
+  ],
+  slots: [
+    { x: -2.55, y: 0, z: 2.2, layer: 'foreground', hideX: -2.55, hideY: -1.25, skin: 'walrus' },
+    { x: -1.1, y: .3, z: -3.15, layer: 'midground', hideX: -1.1, hideY: -.9, skin: 'weasel' },
+    { x: 2.55, y: 0, z: 2.3, layer: 'foreground', hideX: 3.0, hideY: -1.15, skin: 'walrus' },
+    { x: 4.6, y: 0, z: -7.85, layer: 'background', hideX: 6.7, hideY: 0, skin: 'bulldog' },
+    { x: 1.9, y: .3, z: -3.15, layer: 'midground', hideX: 1.9, hideY: -.9, skin: 'weasel' },
+  ],
+  order: [0, 1, 2, 3, 4],
+  dog: { x: .2, y: 0, z: -.7 },
+  prop: { x: -.9, y: 0, z: 3.8 },
+  props: ['mug', 'whiskey'],
+  hat: { x: .95, y: .78, z: 3.45 },
+  landing: { cover: 'counter', band: .4 },
+};
+
+export const LEVELS: Record<number, LevelLayout> = { 1: level1, 2: level2, 3: level3 };
+export const LAST_LEVEL = 3;
+
+/** True when a throw that struck `coverId` at `point` landed in the level's hat zone (top band of the counter). */
+export function onLanding(level: number, coverId: string | number | undefined, point: Vec3 | undefined): boolean {
+  const L = LEVELS[level], z = L?.landing; if (!z || coverId !== z.cover || !point) return false;
+  const c = L.covers.find(v => v.id === z.cover); if (!c) return false;
+  return point.y >= c.max.y - z.band && point.x >= c.min.x && point.x <= c.max.x;
+}
 
 export const RISE_TIME = .32;
 /** Peek cycle: after popping up, an enemy ducks back behind cover once or twice, then stays up to wind up. */
@@ -131,16 +180,16 @@ export function pose(level: number, t: { kind: string; slot?: number; x: number;
   return { x: slot.hideX + (slot.x - slot.hideX) * k, y: slot.hideY + (slot.y - slot.hideY) * k, z: slot.z };
 }
 
-export function bodyBox(kind: BodyKind, at: Vec3): { min: Vec3; max: Vec3 } {
-  const c = BODY[kind]; const [l, r, b, tp] = c.inset;
+export function bodyBox(kind: BodyKind, at: Vec3, skin?: Skin): { min: Vec3; max: Vec3 } {
+  const c = BODY[kind]; const [l, r, b, tp] = skin ? SKIN_INSET[skin] : c.inset;
   return { min: { x: at.x - c.w / 2 + c.w * l, y: at.y + c.h * b, z: at.z - .04 }, max: { x: at.x - c.w / 2 + c.w * r, y: at.y + c.h * tp, z: at.z + .04 } };
 }
 
 /** Everything the fist can collide with at this moment: live actors + static covers. */
-export function hittables(level: number, actors: readonly { id: number; kind: BodyKind | 'enemy' | 'dog'; slot?: number; x: number; y: number; z?: number; age: number; deadline?: number }[], motion = true, scenery: Hittable[] = []): Hittable[] {
+export function hittables(level: number, actors: readonly { id: number; kind: BodyKind | 'enemy' | 'dog'; slot?: number; skin?: Skin; x: number; y: number; z?: number; age: number; deadline?: number }[], motion = true, scenery: Hittable[] = []): Hittable[] {
   const out: Hittable[] = LEVELS[level].covers.map(c => ({ id: c.id, kind: 'cover', min: c.min, max: c.max }));
   for (const t of actors) {
-    const b = bodyBox(t.kind, pose(level, t, motion));
+    const b = bodyBox(t.kind, pose(level, t, motion), t.kind === 'enemy' ? t.skin : undefined);
     // The walking dog frame is a low side view: its hitbox drops to the drawn back/ears.
     if (t.kind === 'dog' && dogWalk(t.age, motion).walking) b.max.y = b.min.y + BODY.dog.h * (DOG_WALK_TOP - BODY.dog.inset[2]);
     out.push({ id: t.id, kind: t.kind === 'enemy' ? 'enemy' : t.kind === 'dog' ? 'dog' : 'prop', ...b });

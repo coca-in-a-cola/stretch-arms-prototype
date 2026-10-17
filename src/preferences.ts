@@ -21,7 +21,7 @@ export function unlockAudio(){
     if(context.state==='suspended')void context.resume().catch(()=>{audioAvailable=false;});
   } catch { audioAvailable=false; }
 }
-export type Sfx='ui'|'hit'|'throw'|'grab'|'miss'|'whoosh'|'ko'|'dog'|'attack'|'cover'|'windup';
+export type Sfx='ui'|'hit'|'throw'|'grab'|'miss'|'whoosh'|'ko'|'dog'|'attack'|'cover'|'windup'|'ding'|'slide'|'yuck';
 /** Tiny synth voices: [wave, start Hz, end Hz, length s, volume, noise mix]. */
 const VOICES:Record<Sfx,[OscillatorType,number,number,number,number,number][]>={
   ui:[['sine',520,300,.1,.05,0]],
@@ -35,6 +35,10 @@ const VOICES:Record<Sfx,[OscillatorType,number,number,number,number,number][]>={
   dog:[['sine',880,520,.32,.05,0],['sine',700,400,.3,.03,0]],
   attack:[['sawtooth',90,40,.25,.07,.7]],
   windup:[['sine',300,520,.18,.025,0]],
+  // Secret ult: a counter bell, a falling cartoon slide whistle at the end, a disgusted 'blegh'.
+  ding:[['sine',1568,1560,1.2,.08,0],['sine',3136,3120,.7,.03,0],['triangle',784,780,.9,.03,0]],
+  slide:[['sine',1400,260,.9,.06,0]],
+  yuck:[['sawtooth',210,120,.28,.035,.3]],
 };
 let noise:AudioBuffer|undefined;
 export function sound(kind:Sfx){
@@ -54,6 +58,21 @@ export function sound(kind:Sfx){
       src.onended=()=>{src.disconnect();filter.disconnect();ng.disconnect();};
     }
   }
+}
+/** Looping trickle/hiss for the ult stream: band-passed noise with a burbling wobble. Call every frame with on/off. */
+let trickleNodes:{src:AudioBufferSourceNode;gain:GainNode;lfo:OscillatorNode}|undefined;
+export function trickle(on:boolean){
+  const live=on&&!muted&&!document.hidden&&context?.state==='running';
+  if(!live){ if(trickleNodes){const t=trickleNodes;trickleNodes=undefined;t.gain.gain.setTargetAtTime(0,context!.currentTime,.05);setTimeout(()=>{t.src.stop();t.lfo.stop();t.src.disconnect();t.gain.disconnect();},300);} return; }
+  if(trickleNodes||!context)return;
+  const ctx=context,len=ctx.sampleRate*2,buf=ctx.createBuffer(1,len,ctx.sampleRate),d=buf.getChannelData(0);
+  for(let i=0;i<len;i++)d[i]=Math.random()*2-1;
+  const src=ctx.createBufferSource();src.buffer=buf;src.loop=true;
+  const bp=ctx.createBiquadFilter();bp.type='bandpass';bp.frequency.value=2200;bp.Q.value=1.4;
+  const gain=ctx.createGain();gain.gain.value=0;gain.gain.setTargetAtTime(.05,ctx.currentTime,.08);
+  const lfo=ctx.createOscillator(),depth=ctx.createGain();lfo.frequency.value=9;depth.gain.value=900;lfo.connect(depth);depth.connect(bp.frequency);
+  src.connect(bp);bp.connect(gain);gain.connect(ctx.destination);src.start();lfo.start();
+  trickleNodes={src,gain,lfo};
 }
 function save(){
   try {localStorage.setItem(KEY,JSON.stringify({muted,reducedMotion:motionOverride}));}

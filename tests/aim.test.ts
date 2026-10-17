@@ -41,7 +41,7 @@ describe('free-aim ray resolution', () => {
 });
 
 describe('depth layers and occlusion in real level layouts', () => {
-  for (const level of [1, 2]) {
+  for (const level of [1, 2, 3]) {
     test(`level ${level}: covers and slots span all three depth layers`, () => {
       const L = LEVELS[level];
       for (const layer of ['foreground', 'midground', 'background'] as const) {

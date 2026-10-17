@@ -36,7 +36,7 @@ function readPng(file: string) {
 
 describe('colour logic: grey world, colour means interactive', () => {
   test('sky, fog and lights of both levels are neutral grey', () => {
-    for (const L of [LOOKS[1], LOOKS[2]]) {
+    for (const L of [LOOKS[1], LOOKS[2], LOOKS[3]]) {
       for (const hex of [...L.sky.map(s => s[1]), L.fog, L.hemi[0], L.hemi[1], L.sun[0]]) expect({ hex, s: hexSat(hex) }).toEqual({ hex, s: 0 });
     }
   });
@@ -56,7 +56,7 @@ describe('colour logic: grey world, colour means interactive', () => {
     let street: THREE.Group;
     try { street = (require('../src/street') as typeof import('../src/street')).makeStreet(); } finally { if (had) g.document = saved; else delete g.document; }
     const world = new THREE.Group(); world.add(street);
-    for (const level of [1, 2]) for (const c of LEVELS[level].covers) world.add(new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshStandardMaterial({ color: c.color, emissive: c.color })));
+    for (const level of [1, 2, 3]) for (const c of LEVELS[level].covers) world.add(new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshStandardMaterial({ color: c.color, emissive: c.color })));
     world.add(new THREE.LineSegments(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({ color: '#202320' })));
     let coloured = 0, checked = 0;
     world.traverse(o => { const m = (o as THREE.Mesh).material as THREE.MeshStandardMaterial | undefined; if (m?.color && sat(m.color) > .05) coloured++; });

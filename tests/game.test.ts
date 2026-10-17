@@ -59,3 +59,92 @@ describe('deterministic arcade rules', () => {
     expect(readProgress('{"version":1,"unlocked":2,"best":1024}')).toEqual({version:1,unlocked:2,best:1024});
   });
 });
+
+import { ULT } from '../src/game';
+import { LEVELS, cameraFor as rig, hittables as hits, onLanding } from '../src/layout';
+import { resolveShot } from '../src/aim';
+import { Stream, STREAM } from '../src/ult';
+
+describe('level 3: the secret bar', () => {
+  const counter = LEVELS[3].covers.find(c => c.id === 'counter')!;
+  const onTop = { x: .3, y: counter.max.y, z: (counter.min.z + counter.max.z) / 2 };
+  const ready = () => { const g = new Game({ version: 1, unlocked: 3, best: 0 }); g.start(3); return g; };
+  const grabHat = (g: Game) => { const hat = g.actors.find(t => t.kind === 'hat')!; expect(g.act('grab', hat.id)).toBe('grab'); expect(g.held).toBe('hat'); };
+
+  test('unlocks after level 2, is selectable once unlocked and survives storage', () => {
+    const g = new Game({ version: 1, unlocked: 2, best: 0 }); expect(g.start(3)).toBe(false);
+    g.start(2); g.finish(true); expect(g.progress.unlocked).toBe(3); expect(g.start(3)).toBe(true);
+    expect(readProgress(JSON.stringify({ version: 1, unlocked: 3, best: 10 })).unlocked).toBe(3);
+    expect(readProgress(JSON.stringify({ version: 1, unlocked: 4, best: 10 })).unlocked).toBe(1);
+    const w = new Game({ version: 1, unlocked: 3, best: 0 }); w.start(1); w.finish(true); expect(w.progress.unlocked).toBe(3); // never re-locks
+  });
+  test('bar patrons peek from their cover; mug / whiskey are the throwables; the hat sits on its stool', () => {
+    const g = ready(); for (let i = 0; i < 4; i++) g.spawn();
+    expect(new Set(g.actors.filter(t => t.kind === 'enemy').map(t => t.skin))).toEqual(new Set(['walrus', 'weasel', 'bulldog']));
+    expect(g.actors.some(t => t.kind === 'mug' || t.kind === 'whiskey')).toBe(true);
+    expect(g.actors.filter(t => t.kind === 'hat')).toHaveLength(1);
+    expect(g.actors.some(t => t.kind === 'dog')).toBe(true);
+  });
+  test('punching the hat does not break it', () => {
+    const g = ready(); const hat = g.actors.find(t => t.kind === 'hat')!;
+    expect(g.act('punch', hat.id)).toBe('miss'); expect(g.actors).toContain(hat);
+  });
+  test('hat thrown onto the counter top triggers the ult; thrown elsewhere it goes back to its stool', () => {
+    for (const elsewhere of [{ kind: 'cover' as const, id: 'counter', point: { ...onTop, y: .3 } }, { kind: 'cover' as const, id: 'piano', point: { x: -2.7, y: 1.3, z: 3 } }, { kind: 'whiff' as const, point: { x: 0, y: 0, z: 0 } }]) {
+      const g = ready(); grabHat(g); g.spend('grab');
+      expect(g.resolve('grab', elsewhere)).not.toBe('ult'); expect(g.ult.phase).toBe('none');
+      expect(g.held).toBe(null); expect(g.actors.filter(t => t.kind === 'hat')).toHaveLength(1);
+    }
+    const g = ready(); grabHat(g); g.spend('grab');
+    expect(g.resolve('grab', { kind: 'cover', id: 'counter', point: onTop })).toBe('ult');
+    expect(g.ult.phase).toBe('intro'); expect(g.events.some(e => e.type === 'ult')).toBe(true);
+    expect(g.actors.some(t => t.kind === 'hat')).toBe(false); // the hat stays on the counter
+    expect(onLanding(1, 'counter', onTop)).toBe(false);
+  });
+  test('a real ray from the camera onto the counter top resolves to the landing zone', () => {
+    const cam = rig(1440, 960).position, g = ready();
+    const shot = resolveShot(cam, { x: onTop.x - cam.x, y: onTop.y - .05 - cam.y, z: counter.max.z - cam.z }, hits(3, []));
+    expect(shot.id).toBe('counter'); expect(onLanding(3, shot.id, shot.point)).toBe(true);
+    expect(g).toBeTruthy();
+  });
+  test('ult: frozen intro, then a 6 s pour that drains the meter; no stamina spent, no attacks land', () => {
+    const g = ready(); grabHat(g); g.spend('grab'); g.resolve('grab', { kind: 'cover', id: 'counter', point: onTop });
+    const ages = g.actors.map(t => t.age); g.tick(ULT.freeze); expect(g.actors.map(t => t.age)).toEqual(ages); // everyone freezes
+    g.tick(ULT.intro); expect(g.ult.phase).toBe('pour'); expect(g.ult.meter).toBe(1);
+    const st = g.stamina; expect(g.spend('punch')).toBe(false); expect(g.stamina).toBe(st);
+    const hp = g.hp; for (let i = 0; i < 30; i++) g.tick(.1); expect(g.ult.meter).toBeCloseTo(.5, 1); expect(g.hp).toBe(hp);
+    for (let i = 0; i < 31; i++) g.tick(.1); expect(g.ult.phase).toBe('done'); expect(g.events.some(e => e.type === 'ultEnd')).toBe(true);
+  });
+  test('the stream soaks enemies to a knockout and penalises the halo dog (with a cooldown)', () => {
+    const g = ready(); grabHat(g); g.spend('grab'); g.resolve('grab', { kind: 'cover', id: 'counter', point: onTop }); g.tick(ULT.intro + .01);
+    const enemy = g.actors.find(t => t.kind === 'enemy')!, dog = g.actors.find(t => t.kind === 'dog')!;
+    expect(g.soak({ kind: 'enemy', id: enemy.id }, .1)).toBe('soak'); expect(enemy.wet).toBeGreaterThan(0);
+    let r: string | null = null; for (let i = 0; i < 20 && r !== 'ko'; i++) r = g.soak({ kind: 'enemy', id: enemy.id }, .1);
+    expect(r).toBe('ko'); expect(g.actors).not.toContain(enemy); expect(g.defeated).toBe(1);
+    const hp = g.hp, score = g.score;
+    expect(g.soak({ kind: 'dog', id: dog.id }, .1)).toBe('dog'); expect(g.hp).toBe(hp - 1); expect(g.score).toBe(Math.max(0, score - 150));
+    expect(g.soak({ kind: 'dog', id: dog.id }, .1)).toBe(null); expect(g.hp).toBe(hp - 1); // still offended, not double-charged
+    expect(g.actors).toContain(dog);
+  });
+  test('one ult per attempt: after it is spent the hat never returns; a fresh attempt resets it', () => {
+    const g = ready(); grabHat(g); g.spend('grab'); g.resolve('grab', { kind: 'cover', id: 'counter', point: onTop });
+    g.tick(ULT.intro + .01); for (let i = 0; i < 70; i++) g.tick(.1);
+    expect(g.ult.phase).toBe('done'); g.placeHat(); expect(g.actors.some(t => t.kind === 'hat')).toBe(false);
+    expect(g.soak({ kind: 'enemy', id: g.actors.find(t => t.kind === 'enemy')?.id }, 1)).toBe(null);
+    g.start(3); expect(g.ult.phase).toBe('none'); expect(g.actors.some(t => t.kind === 'hat')).toBe(true);
+  });
+  test('ult stream: rises from below the bottom centre, arcs above the chord and follows the aim with lag', () => {
+    const s = new Stream(), aim = { x: .8, y: .35 };
+    s.update(1 / 60, aim); expect(s.tip.x).toBeLessThan(aim.x); expect(s.tip.x).toBeGreaterThan(.5); // lags, but moves toward it
+    for (let i = 0; i < 90; i++) s.update(1 / 60, aim);
+    expect(Math.hypot(s.tip.x - aim.x, s.tip.y - aim.y)).toBeLessThan(.01);
+    const pts = s.points(); expect(pts[0]).toEqual(STREAM.origin); expect(pts[0].y).toBeGreaterThan(1); expect(pts[0].x).toBe(.5);
+    expect(pts.at(-1)!.x).toBeCloseTo(s.tip.x, 6); expect(pts.at(-1)!.y).toBeCloseTo(s.tip.y, 6);
+    const mid = pts[Math.floor(pts.length / 2)], chordY = (STREAM.origin.y + s.tip.y) / 2;
+    expect(mid.y).toBeLessThan(chordY - .05); // a real arc, not a straight line
+    expect(Math.min(...pts.map(p => p.y))).toBeLessThan(s.tip.y - .05); // it rises above the landing point and drops onto it
+    // Moving the aim moves the landing point over a few frames.
+    for (let i = 0; i < 90; i++) s.update(1 / 60, { x: .2, y: .6 });
+    expect(s.tip.x).toBeCloseTo(.2, 2);
+  });
+});
