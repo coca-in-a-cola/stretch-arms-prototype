@@ -1,5 +1,8 @@
 """Re-cut clean RGBA sprites from the Gemini concept sheets (white paper background, no stands).
 
+Sources live in art/ (never shipped); the runtime cuts come from the colour recolours (gen_color_*),
+which share the B/W sheets' layout, so the crop boxes are the same.
+
 Runs the pixel work inside headless Chromium's canvas (no PIL in the project venv):
   PLAYWRIGHT_BROWSERS_PATH=.playwright-browsers .venv-browser/bin/python tools/cut_sprites.py
 Per figure: crop a region of the sheet, flood-fill the paper from the crop edges, also clear large
@@ -14,21 +17,22 @@ from playwright.sync_api import sync_playwright
 
 ROOT = Path(__file__).resolve().parents[1]
 ASSETS = ROOT / 'public' / 'assets'
+ART = ROOT / 'art'
 # Shared pixel scale per family keeps frames of one character the same size when they swap in-game.
 CAT_SCALE = 1.1
 JOBS = [
     # source, output, options: crop [x0,y0,x1,y1] in sheet px, blank = rows to clear from the top,
     # mirror = flip horizontally, hole = min enclosed-paper area cleared (default 1400; eye whites are smaller), scale = fixed px scale (else fit), fit = 'height' | 'width' | 'box'
-    ('gemini-bully-solo.jpg', 'bully.png', {}),
-    ('gemini-dog-solo.jpg', 'dog_halo.png', {'blank': 205}),
-    ('gen_cat_poses.jpg', 'gen_cat_windup.png', {'crop': [10, 180, 390, 760], 'mirror': True, 'scale': CAT_SCALE}),
-    ('gen_cat_poses.jpg', 'gen_cat_hurt.png', {'crop': [340, 180, 715, 760], 'mirror': True, 'scale': CAT_SCALE}),
-    ('gen_cat_poses.jpg', 'gen_cat_ko.png', {'crop': [670, 230, 1010, 760], 'mirror': True, 'scale': CAT_SCALE, 'hole': 150}),
-    ('gen_dog_poses.jpg', 'gen_dog_walk.png', {'crop': [0, 180, 375, 590], 'hole': 150}),
-    ('gen_dog_poses.jpg', 'gen_dog_sit.png', {'crop': [180, 190, 760, 910]}),
-    ('gen_dog_poses.jpg', 'gen_dog_sad.png', {'crop': [665, 330, 1020, 770]}),
-    ('gen_props.jpg', 'gen_barrel.png', {'crop': [50, 85, 360, 500]}),
-    ('gen_props.jpg', 'gen_bottle.png', {'crop': [790, 75, 970, 510]}),
+    ('gen_color_gemini-bully-solo.jpg', 'bully.png', {}),
+    ('gen_color_gemini-dog-solo.jpg', 'dog_halo.png', {'blank': 205}),
+    ('gen_color_gen_cat_poses.jpg', 'gen_cat_windup.png', {'crop': [10, 180, 390, 760], 'mirror': True, 'scale': CAT_SCALE}),
+    ('gen_color_gen_cat_poses.jpg', 'gen_cat_hurt.png', {'crop': [340, 180, 715, 760], 'mirror': True, 'scale': CAT_SCALE}),
+    ('gen_color_gen_cat_poses.jpg', 'gen_cat_ko.png', {'crop': [670, 230, 1010, 760], 'mirror': True, 'scale': CAT_SCALE, 'hole': 150}),
+    ('gen_color_gen_dog_poses.jpg', 'gen_dog_walk.png', {'crop': [0, 180, 375, 590], 'hole': 150}),
+    ('gen_color_gen_dog_poses.jpg', 'gen_dog_sit.png', {'crop': [180, 190, 760, 910]}),
+    ('gen_color_gen_dog_poses.jpg', 'gen_dog_sad.png', {'crop': [665, 330, 1020, 770]}),
+    ('gen_color_gen_props.jpg', 'gen_barrel.png', {'crop': [50, 85, 360, 500]}),
+    ('gen_color_gen_props.jpg', 'gen_bottle.png', {'crop': [790, 75, 970, 510]}),
 ]
 JS = '''async ([src, o]) => {
   const img = new Image(); img.src = src; await img.decode();
@@ -88,7 +92,7 @@ with sync_playwright() as p:
     browser = p.chromium.launch(headless=True, args=['--no-sandbox'])
     page = browser.new_page()
     for src, dst, opts in JOBS:
-        source = ASSETS / src
+        source = ART / src
         if not source.exists():
             print(dst, 'SKIPPED: missing', src)
             continue
