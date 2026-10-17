@@ -1,5 +1,5 @@
 {
-  "url": "http://127.0.0.1:38453/",
+  "url": "http://127.0.0.1:44247/",
   "mutableHooks": false,
   "consoleErrors": [],
   "flows": [
@@ -10,9 +10,16 @@
     "real CDP background freeze auto-pauses; public state stays frozen on return",
     "system reduced motion + persisted override and mute",
     "WebGL unavailable fallback",
-    "390x844 portrait and 844x390 landscape controls >=44px"
+    "390x844 portrait and 844x390 landscape controls >=44px",
+    "full-motion fake-clock acting: arms idle both levels, mid-punch, bully wind-up and hurt frames, sad dog frame"
   ],
   "screenshots": [
+    "arm-idle-level1.png",
+    "arm-idle-level2.png",
+    "arm-punch.png",
+    "dog-sad.png",
+    "enemy-hit.png",
+    "enemy-windup.png",
     "hit-moment.png",
     "landscape-pause.png",
     "landscape.png",

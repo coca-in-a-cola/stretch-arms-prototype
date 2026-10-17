@@ -144,7 +144,7 @@ def acting_evidence(browser, url: str, errors: list[str]) -> None:
     page.mouse.up()
     page.clock.run_for(130)
     capture(page, 'arm-punch')
-    page.clock.run_for(110)
+    page.clock.run_for(200)  # fist retracting, bully still in the hurt frame
     capture(page, 'enemy-hit')
     page.clock.run_for(1200)
     dog = advance_until(page, 'dog', 'sit')

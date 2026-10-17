@@ -16,3 +16,4 @@ MODEL_SMOKE.txt
 # Project-local browser test tooling
 .venv-browser/
 .playwright-browsers/
+__pycache__/

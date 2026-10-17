@@ -64,7 +64,9 @@ export function punchPose(side: -1 | 1, W: number, H: number, spot: Pt, k: numbe
     open = !!opts.grab || throwing;
   } else {
     // Snap back with a damped rubbery wobble that ends exactly at rest.
-    const t = Math.min(1, (k - p.release) / (1 - p.release)), f = (1 - t) ** 2 * Math.cos(t * Math.PI * 2.5);
+    const t = Math.min(1, (k - p.release) / (1 - p.release)), w = (1 - t) ** 2 * Math.cos(t * Math.PI * 2.5);
+    // Overshoot past rest is capped to a quarter glove so the wobble never leaves the screen.
+    const f = w < 0 ? Math.max(w, -.25 * rest.r / (Math.hypot(spot.x - rest.glove.x, spot.y - rest.glove.y) || 1)) : w;
     reach = Math.max(0, f); glove = lerp(rest.glove, spot, f);
     curl = -.18 * (1 - t) * Math.sin(t * Math.PI * 3 + .5);
     open = throwing && t < .3;

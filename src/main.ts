@@ -403,7 +403,7 @@ const pointer = new THREE.Vector2(0, 0);
 let lastMode = '';
 let lastHp = game.hp;
 const DURATION = .42, ARRIVE = .36, RELEASE = .62;
-interface Swing { action: Action; throwing: boolean; spot: Pt; ray: { origin: Vec3; direction: Vec3 }; shot: Shot; phase: number; resolved: boolean; outcome?: Outcome; held: BodyKind | null; staminaBefore: number; staminaAfter: number; }
+interface Swing { action: Action; throwing: boolean; /** Click point as a fraction of the viewport, so a rotation mid-swing keeps the fist on it. */ spot: Pt; ray: { origin: Vec3; direction: Vec3 }; shot: Shot; phase: number; resolved: boolean; outcome?: Outcome; held: BodyKind | null; staminaBefore: number; staminaAfter: number; }
 let swing: Swing | null = null;
 let shake = 0, hitstop = 0, timeScale = 1;
 const strikes: { action: Action; outcome: Outcome; kind: string; id: number | string | null; staminaBefore: number; staminaAfter: number }[] = [];
@@ -441,7 +441,7 @@ function perform(action: Action) {
   if (!game.spend(action)) { updateHud(); sound('ui'); return; }
   const ray = aimRay(pointer);
   sound('whoosh');
-  const spot = { x: (pointer.x + 1) / 2 * innerWidth, y: (1 - pointer.y) / 2 * innerHeight };
+  const spot = { x: (pointer.x + 1) / 2, y: (1 - pointer.y) / 2 };
   swing = { action, throwing, spot, ray, shot: resolveShot(ray.origin, ray.direction, currentHittables()), phase: 0, resolved: false, held, staminaBefore, staminaAfter: game.stamina };
   if (!motion()) land(swing);
   updateHud();
@@ -595,18 +595,19 @@ function drawArm(time: number) {
   if (game.mode !== 'play' && game.mode !== 'pause') return;
   g.setTransform(dpr, 0, 0, dpr, 0, 0);
   const { ink, rim } = armMetrics(W, H), avoid = avoidRect, s = swing, k = s ? s.phase : 1;
-  const active = s && k < 1 ? sideFor(s.spot, W) : 0;
+  const spot = s ? { x: s.spot.x * W, y: s.spot.y * H } : { x: 0, y: 0 };
+  const active = s && k < 1 ? sideFor(spot, W) : 0;
   // Impact burst sits behind the glove so the fist stays readable on contact.
   if (s && s.resolved && k < .8) {
     const a = (k - ARRIVE) / (.8 - ARRIVE), key = s.outcome && bursts[s.outcome] ? s.outcome : 'miss';
     const size = (key === 'miss' ? .9 : 1.6) * armMetrics(W, H).r * 2 * Math.max(.5, Math.min(1.2, 6.5 / Math.max(3, s.shot.distance))) * (a < .2 ? .6 + a * 3 : 1.2 - a * .2);
-    g.save(); g.globalAlpha = Math.max(0, 1 - Math.max(0, a - .5) * 2); g.translate(s.spot.x, s.spot.y); g.rotate(-s.ray.direction.x * .4);
+    g.save(); g.globalAlpha = Math.max(0, 1 - Math.max(0, a - .5) * 2); g.translate(spot.x, spot.y); g.rotate(-s.ray.direction.x * .4);
     g.drawImage(bursts[key], -size / 2, -size / 2, size, size); g.restore();
   }
   for (const side of [-1, 1] as const) {
     const bob = motion() ? Math.sin(time * 2.4 + (side > 0 ? 0 : 1.3)) * H * .006 : 0;
     let arm = restPose(side, W, H, avoid, bob);
-    if (s && side === active) arm = punchPose(side, W, H, s.spot, k, { arrive: ARRIVE, release: RELEASE }, { depth: 6.5 / Math.max(3, s.shot.distance), grab: s.action === 'grab', throwing: s.throwing, avoid });
+    if (s && side === active) arm = punchPose(side, W, H, spot, k, { arrive: ARRIVE, release: RELEASE }, { depth: 6.5 / Math.max(3, s.shot.distance), grab: s.action === 'grab', throwing: s.throwing, avoid });
     const holding = game.held && side === 1 && !(s && s.throwing && active === 1 && k >= ARRIVE);
     if (holding) arm = { ...arm, open: true };
     // Speed lines trail the fist while it flies out.

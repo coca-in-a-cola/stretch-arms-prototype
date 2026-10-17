@@ -60,3 +60,15 @@ describe('first-person arms stay readable at every aspect ratio', () => {
     expect(punchPose(1, W, H, spot, .4, PHASES, { depth: .5 }).r).toBeLessThan(armMetrics(W, H).r);
   });
 });
+
+test('the snap-back wobble never throws the glove off screen', () => {
+  for (const [W, H] of VIEWPORTS) for (const spot of [{ x: W * .55, y: H * .3 }, { x: W * .1, y: H * .2 }]) {
+    const side = sideFor(spot, W), rest = restPose(side, W, H);
+    for (let k = PHASES.release; k <= 1; k += .01) {
+      const a = punchPose(side, W, H, spot, k, PHASES);
+      expect(Math.hypot(a.glove.x - rest.glove.x, a.glove.y - rest.glove.y)).toBeLessThan(Math.hypot(spot.x - rest.glove.x, spot.y - rest.glove.y) * 1.01 + 1);
+      const b = gloveBounds({ ...a, glove: { x: a.glove.x, y: Math.max(a.glove.y, 0) } });
+      expect(b.maxX).toBeLessThanOrEqual(W + a.r * .2); expect(b.maxY).toBeLessThanOrEqual(H + a.r * .2);
+    }
+  }
+});
