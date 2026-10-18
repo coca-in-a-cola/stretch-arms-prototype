@@ -16,7 +16,7 @@ describe('the herald briefing', () => {
     const one = allText(1, false);
     for (const w of ['ЛКМ', 'ПРОБЕЛ', 'ПКМ', 'E', 'сил', 'Пёс', 'котелок']) expect(one).toContain(w);
     const two = allText(2, false);
-    for (const w of ['Стрелки', 'края экрана', 'ПОЛОСКИ ЗДОРОВЬЯ', 'ШПАНА']) expect(two).toContain(w);
+    for (const w of ['Стрелки', 'у края', 'ПОЛОСКИ ЗДОРОВЬЯ', 'ШПАНА']) expect(two).toContain(w);
     expect(two).not.toEqual(one);
     expect(briefed(2).briefing!.flyers.map(f => f.title)).toEqual(flyersFor(2, false).map(f => f.title));
   });

@@ -5,6 +5,7 @@ import { resolveShot, type Hittable, type Shot, type Vec3 } from './aim';
 import { LEVELS, BODY, SKIN_INSET, WINDUP, YARD_X, ALLEY_X, LAST_LEVEL, clampPan, pose, dogWalk, dogAscent, bodyOf, hittables, cameraFor, onLanding, type Cover, type BodyKind, type Skin } from './layout';
 import { FRIEND_MAD, THUG, friendPose, type FriendKind, type ThugKind } from './friends';
 import './style.css';
+import { heraldView } from './heraldView';
 import { makeStreet } from './street';
 import { makeBar } from './bar';
 import { Stream, cardAt } from './ult';
@@ -18,8 +19,13 @@ let saved = loadProgress(() => null);
 try { saved = loadProgress(k => localStorage.getItem(k)); } catch { /* storage blocked: fresh progress */ }
 const game = new Game(saved, p => { try { localStorage.setItem(PROGRESS_KEY, JSON.stringify(p)); } catch { game.message = 'Сохранение недоступно в этом браузере.'; } });
 const app = document.querySelector<HTMLDivElement>('#app')!;
-app.innerHTML = '<canvas id="scene" aria-label="Трёхмерный двор и задиры"></canvas><div id="film" aria-hidden="true"></div><canvas id="arm" aria-hidden="true"></canvas><div id="ui"></div>';
+app.innerHTML = '<canvas id="scene" aria-label="Трёхмерный двор и задиры"></canvas><div id="film" aria-hidden="true"></div><div id="herald" hidden></div><canvas id="arm" aria-hidden="true"></canvas><div id="ui"></div>';
 const ui = document.querySelector<HTMLDivElement>('#ui')!;
+// Level-start briefing by the herald (once per level per session); touch wording if the player taps.
+game.briefings = true; game.touch = matchMedia('(pointer: coarse)').matches;
+addEventListener('pointerdown', e => { game.touch = e.pointerType === 'touch'; }, { capture: true });
+const herald = heraldView(document.querySelector<HTMLElement>('#herald')!, () => skipBriefing());
+function skipBriefing() { if (!game.briefing || game.mode !== 'play') return; unlockAudio(); sound('ui'); game.skipBriefing(); renderUi(); }
 { // Old-film grain + vignette over the scene (under the arms and HUD): one static noise tile, drifted by CSS.
   const c = document.createElement('canvas'); c.width = c.height = 128; const g = c.getContext('2d');
   if (g) { const d = g.createImageData(128, 128); for (let i = 0; i < d.data.length; i += 4) { const v = Math.random() * 255; d.data[i] = d.data[i + 1] = d.data[i + 2] = v; d.data[i + 3] = 255; } g.putImageData(d, 0, 0); }
@@ -607,7 +613,7 @@ let lastHp = game.hp;
 const DURATION = .42, ARRIVE = .36, RELEASE = .62;
 /** A throw is a quick whip: the glove snaps a short way toward the aim and lets go at WHIP.arrive; the prop flies on alone. */
 const WHIP = { duration: .34, arrive: .3, release: .46, reach: .38 } as const;
-interface Swing { action: Action; throwing: boolean; /** Throws only: whether the prop has left the hand yet. */ launched?: boolean; /** Click point as a fraction of the viewport, so a rotation mid-swing keeps the fist on it. */ spot: Pt; ray: { origin: Vec3; direction: Vec3 }; shot: Shot; phase: number; resolved: boolean; outcome?: Outcome; held: BodyKind | null; staminaBefore: number; staminaAfter: number; }
+interface Swing { action: Action; throwing: boolean; /** Thrown during the herald's briefing: lands on a flyer, on him or on air. */ brief?: boolean; /** Throws only: whether the prop has left the hand yet. */ launched?: boolean; /** Click point as a fraction of the viewport, so a rotation mid-swing keeps the fist on it. */ spot: Pt; ray: { origin: Vec3; direction: Vec3 }; shot: Shot; phase: number; resolved: boolean; outcome?: Outcome; held: BodyKind | null; staminaBefore: number; staminaAfter: number; }
 let swing: Swing | null = null;
 let shake = 0, hitstop = 0, timeScale = 1;
 const strikes: { action: Action; outcome: Outcome; kind: string; id: number | string | null; staminaBefore: number; staminaAfter: number }[] = [];
@@ -642,6 +648,12 @@ function perform(action: Action) {
   if (game.mode !== 'play') return;
   unlockAudio();
   if (swing && !swing.resolved) return; // one fist in flight at a time
+  if (game.briefing) { // briefing: every swing is a free punch at the flyer layer, not at the world
+    const ray = aimRay(pointer); sound('whoosh');
+    swing = { action: 'punch', throwing: false, brief: true, spot: { x: (pointer.x + 1) / 2, y: (1 - pointer.y) / 2 }, ray, shot: { kind: 'whiff', distance: 3, point: ray.origin }, phase: 0, resolved: false, held: null, staminaBefore: game.stamina, staminaAfter: game.stamina };
+    if (!motion()) land(swing);
+    return;
+  }
   const throwing = action === 'grab' && game.held !== null;
   const held = game.held, staminaBefore = game.stamina;
   if (!game.spend(action)) { updateHud(); sound('ui'); return; }
@@ -669,6 +681,8 @@ function drainEvents(at?: { x: number; y: number }) {
     if (e.type === 'ko' && e.combo >= 2) callout(`КОМБО ×${e.combo} ${COMBO_WORDS[Math.min(e.combo, 5)]}`, p.x, p.y - 70, 'combo');
     if (e.type === 'attack') { exits.set(e.id, 'attack'); sound('attack'); callout('БАЦ! −♥', p.x, p.y, 'bad'); if (motion()) shake = .22; }
     if (e.type === 'dog') { if (v) v.sad = 2.4; sound('dog'); callout(game.ult.phase === 'pour' ? 'ПЁС ОСКОРБЛЁН!' : 'ПСА НЕ ТРОГАЙ!', p.x, p.y - 60, 'bad'); }
+    if (e.type === 'tear') herald.tear(motion());
+    if (e.type === 'offend' && e.who === 'herald') { sound('huff'); if (motion()) shake = Math.max(shake, .14); continue; } // his rude card is drawn by the herald layer
     if (e.type === 'offend') { if (v) v.flash = 1; sound('huff'); callout(e.text ?? 'ХАМ!', p.x, p.y - 60, 'bad'); if (motion()) shake = Math.max(shake, .12); }
     if (e.type === 'nuisance') {
       exits.set(e.id, 'attack');
@@ -970,6 +984,13 @@ function milestone(text: string) {
 /** Arrival: re-cast the same ray against the scene as it is *now* (actors keep moving while the fist flies). */
 function land(s: Swing) {
   s.resolved = true;
+  if (s.brief) {
+    const at = { x: s.spot.x * innerWidth, y: s.spot.y * innerHeight }, res = game.briefPunch(herald.hit(at.x, at.y));
+    if (res === 'tear') { sound('flop'); if (motion()) { shake = .06; hitstop = .04; } }
+    else if (res !== 'protected') sound('miss');
+    s.outcome = res === 'tear' ? 'hit' : res === 'protected' ? 'protected' : 'miss'; // the comic burst behind the glove
+    drainEvents(at); renderUi(); return;
+  }
   s.shot = resolveShot(s.ray.origin, s.ray.direction, currentHittables(), s.throwing ? 'punch' : s.action);
   const id = typeof s.shot.id === 'number' ? s.shot.id : undefined;
   const res = game.resolve(s.action, { kind: s.shot.kind, id: s.shot.id, point: s.shot.point });
@@ -1041,6 +1062,7 @@ const endDrag = (e: PointerEvent) => {
   const tap = !drag.moved; drag = null;
   if (!tap || game.mode !== 'play') return;
   setPointer(e);
+  if (game.briefing) { perform('punch'); return; } // briefing: a tap punches the flyer straight away
   if (!game.ultActive) { game.message = 'Прицел стоит. Жми «Удар» или «Хватай».'; updateHud(); }
 };
 canvas.addEventListener('pointerup', endDrag);
@@ -1050,7 +1072,7 @@ addEventListener('blur', () => panKeys.clear());
 canvas.addEventListener('contextmenu', e => e.preventDefault());
 addEventListener('keydown', e => {
   if (['ArrowLeft', 'ArrowRight', 'KeyA', 'KeyD'].includes(e.code)) { panKeys.add(e.code); if (canPan()) e.preventDefault(); }
-  if (e.code === 'Escape' && !document.hidden) { game.pause(); renderUi(); }
+  if (e.code === 'Escape' && !document.hidden) { if (game.briefing && game.mode === 'play') skipBriefing(); else { game.pause(); renderUi(); } }
   if ((e.code === 'Space' || e.code === 'KeyE') && !(e.target instanceof HTMLButtonElement)) { e.preventDefault(); if (!e.repeat) perform(e.code === 'Space' ? 'punch' : 'grab'); }
 });
 function showLevelGroup() { const shown = shownLevel(); for (const l of LEVEL_IDS) levelGroups[l].visible = shown === l; }
@@ -1060,7 +1082,7 @@ document.addEventListener('freeze', suspendPage);
 addEventListener('pagehide', suspendPage);
 
 function button(id: string, handler: () => void) { document.getElementById(id)?.addEventListener('click', () => { unlockAudio(); sound('ui'); handler(); }); }
-function startLevel(level: number) { if (game.start(level)) { for (const c of laundry) c.visible = true; drops2.length = 0; pan = 0; panVel = 0; lastMode = ''; damageNumbers.length = 0; pops.length = 0; shards.clear(); splats.length = 0; bits.clear(); constellations.length = 0; for (const id of [...hazardViews.keys()]) dropHazardView(id); document.querySelector('.iris')?.remove(); } renderUi(); }
+function startLevel(level: number) { game.reduced = !motion(); if (game.start(level)) { for (const c of laundry) c.visible = true; drops2.length = 0; pan = 0; panVel = 0; lastMode = ''; damageNumbers.length = 0; pops.length = 0; shards.clear(); splats.length = 0; bits.clear(); constellations.length = 0; for (const id of [...hazardViews.keys()]) dropHazardView(id); document.querySelector('.iris')?.remove(); } renderUi(); }
 function chrome() { return '<div class="topline"><div class="brand"><span>↗</span> ДВОР ДА ДЕЛО</div><div class="tag">РУКИ ДЛИННЕЕ. ДЕНЬ ЛУЧШЕ.</div></div>'; }
 
 function renderUi() {
@@ -1311,7 +1333,7 @@ function drawArm(time: number) {
   if (game.mode !== 'play' && game.mode !== 'pause') return;
   g.setTransform(dpr, 0, 0, dpr, 0, 0);
   if (isBar()) drawStream(g, W, H, time, armMetrics(W, H).ink);
-  const { ink, rim } = armMetrics(W, H), avoid = avoidRect, s = swing, k = s ? s.phase : 1;
+  const { ink, rim } = armMetrics(W, H), avoid = game.briefing ? null : avoidRect, s = swing, k = s ? s.phase : 1;
   drawGeysers(g, time, ink); drawActorFx(g, time, ink); drawHealthBars(g, dt, ink); drawLaundryDrops(g, dt, ink); drawBits(g, dt, ink, time);
   const spot = s ? { x: s.spot.x * W, y: s.spot.y * H } : { x: 0, y: 0 };
   const active = s && k < 1 ? (s.throwing ? 1 : sideFor(spot, W)) : 0;
@@ -1335,7 +1357,8 @@ function drawArm(time: number) {
     g.drawImage(bursts[key], -size / 2, -size / 2, size, size); g.restore();
   }
   for (const side of [-1, 1] as const) {
-    const bob = motion() ? Math.sin(time * 2.4 + (side > 0 ? 0 : 1.3)) * H * .006 : 0;
+    // While the herald talks the fists rest low at the corners so they never cover the flyer text.
+    const bob = (motion() ? Math.sin(time * 2.4 + (side > 0 ? 0 : 1.3)) * H * .006 : 0) + (game.briefing ? armMetrics(W, H).r * 1.7 : 0);
     let arm = restPose(side, W, H, avoid, bob);
     if (s && side === active) arm = s.throwing ? punchPose(side, W, H, whipSpot(s), k, WHIP, { throwing: true, avoid }) : punchPose(side, W, H, spot, k, { arrive: ARRIVE, release: RELEASE }, { depth: 6.5 / Math.max(3, s.shot.distance), grab: s.action === 'grab', avoid });
     const holding = game.held && side === 1 && !(s && s.throwing && active === 1);
@@ -1365,6 +1388,7 @@ function frame() {
   if (game.mode !== 'pause') runtime += dt;
   if (hitstop > 0) hitstop -= dt; else game.tick(dt);
   if (game.mode !== lastMode) renderUi();
+  { const b = game.mode === 'play' || game.mode === 'pause' ? game.briefing : null; herald.sync(b, game.mode === 'pause'); const on = String(!!b); if (app.dataset.brief !== on) app.dataset.brief = on; }
   updateUlt(game.mode === 'play' ? dt : 0);
   if (game.events.length) drainEvents();
   showLevelGroup();
