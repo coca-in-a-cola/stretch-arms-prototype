@@ -25,7 +25,7 @@ export const THUG_BODY: Record<ThugKind, CharBody> = {
 export interface FriendPlan { who: FriendKind; x0: number; x1: number; y: number; z: number; period: number; spots?: readonly { x: number; z: number }[]; }
 
 /** Hitting a friend: like the halo dog, a heart and points; they stay offended (frozen in place) for `mad` seconds. */
-export const FRIEND_PENALTY = 120, FRIEND_MAD = 2.4;
+export const FRIEND_PENALTY = 120, FRIEND_MAD = 0.6;
 /** What each one shouts when hit. */
 export const FRIEND_LINES: Record<FriendKind, readonly string[]> = {
   mole: ['ОЙ! МОЯ КАСКА!', 'ХУЛИГАН!', 'Я ЖЕ ПОД ЗЕМЛЁЙ ЖИВУ!'],

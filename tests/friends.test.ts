@@ -30,9 +30,9 @@ describe('the mole', () => {
     expect(g.resolve('punch', { kind: 'friend', id: mole.id })).toBe('protected');
     expect(g.hp).toBe(4); expect(g.score).toBe(500 - FRIEND_PENALTY); expect(g.combo).toBe(0);
     expect(g.events.find(e => e.type === 'offend')).toMatchObject({ who: 'mole', id: mole.id });
-    const age = mole.age; g.tick(1); expect(mole.age).toBe(age); // stays up, offended
-    g.stamina = 100; g.spend('punch'); g.resolve('punch', { kind: 'friend', id: mole.id }); expect(g.hp).toBe(4); // no double penalty
-    g.tick(2); expect(mole.mad).toBe(0); g.tick(.1); expect(mole.age).toBeGreaterThan(age);
+    const age = mole.age; g.tick(.3); expect(mole.age).toBe(age);
+    g.stamina = 100; g.spend('punch'); g.resolve('punch', { kind: 'friend', id: mole.id }); expect(g.hp).toBe(4);
+    g.tick(.4); expect(g.actors.some(t => t.id === mole.id)).toBe(false);
   });
   test('he pops up right in front of a bully: a careless straight punch at the bartender hits the mole instead', () => {
     const g = bar(), mole = g.actors.find(t => t.who === 'mole')!; mole.age = 4; // hole 0, in front of the counter
@@ -92,6 +92,36 @@ describe('friendly characters', () => {
     const e = g.events.find(v => v.type === 'offend' && v.who === 'bartender')!;
     expect(e).toBeTruthy();
     expect(e.text).toBeTruthy();
+  });
+  test('a hit friendly is removed after the reaction', () => {
+    const g = bar();
+    const friend = g.actors.find(t => t.kind === 'friend' && t.who === 'bartender')!;
+    const dog = g.actors.find(t => t.kind === 'dog')!;
+    expect(g.actors).toContain(friend);
+    expect(g.actors).toContain(dog);
+
+    g.spend('punch');
+    g.resolve('punch', { kind: 'friend', id: friend.id });
+    expect(friend.mad).toBeGreaterThan(0);
+    expect(g.actors).toContain(friend);
+
+    g.tick(.3);
+    expect(friend.mad).toBeGreaterThan(0);
+    expect(g.actors).toContain(friend);
+
+    g.tick(.4);
+    expect(g.actors.some(t => t.id === friend.id)).toBe(false);
+
+    g.spend('punch');
+    g.resolve('punch', { kind: 'dog', id: dog.id });
+    expect(dog.mad).toBeGreaterThan(0);
+    expect(g.actors).toContain(dog);
+
+    g.tick(.7);
+    expect(g.actors.some(t => t.id === dog.id)).toBe(false);
+
+    for (let i = 0; i < 20; i++) g.tick(.5);
+    expect(g.actors.some(t => t.kind === 'dog')).toBe(false);
   });
 });
 

@@ -90,7 +90,7 @@ const layerAt = (z: number): Layer => z > 1.5 ? 'foreground' : z > -5 ? 'midgrou
 
 export class Game {
   mode: Mode = 'menu'; level = 1; hp = 5; stamina = 100; score = 0; combo = 0; elapsed = 0; held: PropKind | null = null;
-  ult: { phase: UltPhase; t: number; meter: number; /** Seconds of the pour that went into the hat. */ hat: number } = { phase: 'none', t: 0, meter: 0, hat: 0 }; dogSoak = 0;
+  ult: { phase: UltPhase; t: number; meter: number; /** Seconds of the pour that went into the hat. */ hat: number } = { phase: 'none', t: 0, meter: 0, hat: 0 }; dogSoak = 0; dogLeft = false;
   /** Where the bowler sits on the counter once the ult is on (upside down, as a receptacle). */
   hatRest: (Vec3 & { flipped: boolean }) | null = null;
   actors: Actor[] = []; events: GameEvent[] = []; flights: Flight[] = [];
@@ -108,7 +108,7 @@ export class Game {
   start(level: number) {
     if (level > this.progress.unlocked) return false;
     this.level = level; this.hp = 5; this.stamina = 100; this.score = 0; this.combo = 0; this.elapsed = 0; this.held = null; this.actors = []; this.events = []; this.flights = []; this.riffs = 0; this.laundry = 5; this.won = false; this.defeated = 0; this.spawned = 0; this.spawnClock = 0; this.nextId = 1; this.thugClock = 0; this.thugs = 0; this.geysers = []; this.hazards = []; this.hazardClock = 0; this.hazardCount = 0; this.mode = 'play'; this.message = this.layout.look === 'bar' ? 'Бар «Длинные руки». Ведите себя прилично.' : 'Улица большая — крути камеру к краям!';
-    this.ult = { phase: 'none', t: 0, meter: 0, hat: 0 }; this.dogSoak = 0; this.hatRest = null;
+    this.ult = { phase: 'none', t: 0, meter: 0, hat: 0 }; this.dogSoak = 0; this.dogLeft = false; this.hatRest = null;
     for (const p of this.layout.props) this.actors.push({ id: this.nextId++, kind: p.kind, x: p.x, y: p.y, z: p.z, layer: layerAt(p.z), age: 0, deadline: Infinity });
     this.layout.friends.forEach((f, plan) => this.actors.push({ id: this.nextId++, kind: 'friend', who: f.who, plan, x: f.x0, y: f.y, z: f.z, layer: layerAt(f.z), age: 0, deadline: Infinity }));
     this.spawn(); this.placeHat(); return true;
@@ -124,10 +124,12 @@ export class Game {
     if (this.mode !== 'play' || this.ult.phase !== 'pour') return null;
     const t = typeof hit.id === 'number' ? this.actors.find(v => v.id === hit.id) : undefined; if (!t) return null;
     if (t.kind === 'dog') {
-      if (this.dogSoak > 0) return null;
-      this.dogSoak = ULT.dogCooldown; this.score = Math.max(0, this.score - 150); this.hp = Math.max(0, this.hp - 1); this.combo = 0;
-      this.events.push({ type: 'dog', id: t.id, combo: 0 }); this.message = 'Пёс глубоко оскорблён! −150 и сердце.';
-      if (!this.hp) this.finish(false); return 'dog';
+      if (this.dogSoak > 0 || t.mad) return null;
+      this.dogSoak = ULT.dogCooldown; this.dogHit(t); return 'dog';
+    }
+    if (t.kind === 'friend') {
+      if (t.mad) return null;
+      this.friendHit(t); return 'dog';
     }
     if (t.kind !== 'enemy') return null;
     t.wet = Math.min(1, (t.wet ?? 0) + dt * ULT.soakRate);
@@ -174,7 +176,7 @@ export class Game {
     const antic = this.spawned % 3 === 2 ? ANTIC.kinds[Math.floor(this.spawned / 3) % ANTIC.kinds.length] : undefined;
     this.actors.push({ id: this.nextId++, kind: 'enemy', x: s.x, y: s.y, z: s.z, slot, layer: s.layer, age: 0, deadline: deadline + (antic ? ANTIC.len : 0), hp, maxHp: hp, antic });
     this.spawned++;
-    if (!this.actors.some(t => t.kind === 'dog')) for (const dog of dogs) this.actors.push({ id: this.nextId++, kind: 'dog', ...dog, layer: 'midground', age: 0, deadline: Infinity });
+    if (!this.dogLeft && !this.actors.some(t => t.kind === 'dog')) for (const dog of dogs) this.actors.push({ id: this.nextId++, kind: 'dog', ...dog, layer: 'midground', age: 0, deadline: Infinity });
     if (s.skin) this.actors.find(t => t.kind === 'enemy' && t.slot === slot)!.skin = s.skin;
   }
   tick(dt: number) {
@@ -191,7 +193,14 @@ export class Game {
     }
     this.elapsed += dt; this.stamina = Math.min(100, this.stamina + dt * 21); this.spawnClock += dt;
     for (const t of [...this.actors]) {
-      if (t.kind === 'friend' && t.mad) { t.mad = Math.max(0, t.mad - dt); continue; } // offended: frozen on the spot
+      if ((t.kind === 'friend' || t.kind === 'dog') && t.mad) {
+        t.mad = Math.max(0, t.mad - dt);
+        if (t.mad <= 0) {
+          this.actors = this.actors.filter(v => v.id !== t.id);
+          if (t.kind === 'dog') this.dogLeft = true;
+        }
+        continue;
+      }
       t.age += dt;
       if (t.kind === 'thug' && t.age >= THUG.strike) { this.nuisance(t); continue; }
       if (t.kind === 'enemy') {
@@ -397,7 +406,9 @@ export class Game {
     this.actors.push(t); this.events.push({ type: 'land', id: t.id, combo: this.combo, point, prop: kind });
   }
   private dogHit(t: Actor) {
-    this.score = Math.max(0, this.score - 150); this.hp = Math.max(0, this.hp - 1); this.combo = 0; this.events.push({ type: 'dog', id: t.id, combo: 0 }); this.message = 'Пёс — святой! −150 и сердце.'; if (!this.hp) this.finish(false);
+    if (t.mad) return;
+    this.score = Math.max(0, this.score - 150); this.hp = Math.max(0, this.hp - 1); this.combo = 0; t.mad = FRIEND_MAD;
+    this.events.push({ type: 'dog', id: t.id, combo: 0 }); this.message = 'Пёс — святой! −150 и сердце.'; if (!this.hp) this.finish(false);
   }
   /** Damage an enemy: a hurt flash + number while it has HP left (and a stagger), a knockout when it runs out. */
   hurt(t: Actor, amount: number, throwing = false, how?: KoHow) {

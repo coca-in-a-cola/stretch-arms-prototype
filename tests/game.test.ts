@@ -32,7 +32,8 @@ describe('deterministic arcade rules', () => {
   test('protected dog survives, score penalty and heart loss', () => {
     const g = new Game();g.start(1);g.score=300;const dog=g.actors.find(t=>t.kind==='dog')!;
     expect(g.act('punch',dog.id)).toBe('protected');expect(g.hp).toBe(4);expect(g.score).toBe(150);expect(g.actors).toContain(dog);
-    g.stamina=100;g.act('punch',dog.id);g.stamina=100;g.act('punch',dog.id);expect(g.score).toBe(0);
+    g.stamina=100;g.act('punch',dog.id);expect(g.score).toBe(150);
+    g.tick(.7);expect(g.actors).not.toContain(dog);
   });
   test('health bars: every enemy has HP; a punch takes a third, a thrown prop more; the bar shows on damage and fades', () => {
     const g = new Game(); g.start(1); const enemy = g.actors.find(t => t.kind === 'enemy')!;
