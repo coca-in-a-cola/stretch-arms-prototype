@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { PROPS, REACH_COST } from '../src/props';
-import { Game, ANTIC, ENEMY_HP, PUNCH_DAMAGE, healthBarAlpha, readProgress, loadProgress, resultActions, PROGRESS_KEY, LEGACY_PROGRESS_KEY, type Progress } from '../src/game';
+import { Game, ANTIC, ENEMY_HP, PUNCH_DAMAGE, STAMINA_REGEN, healthBarAlpha, readProgress, loadProgress, resultActions, PROGRESS_KEY, LEGACY_PROGRESS_KEY, type Progress } from '../src/game';
+import { LEVELS } from '../src/layout';
 
 describe('deterministic arcade rules', () => {
   test('the bar is level 1 (open from the start); the merged street is level 2 and spawns across depth layers on both halves', () => {
@@ -24,7 +25,7 @@ describe('deterministic arcade rules', () => {
   test('stamina cost, regeneration, gating and cap', () => {
     const g = new Game(); g.start(1); g.act('punch'); expect(g.stamina).toBe(76);
     g.stamina = 23; const count = g.actors.length; expect(g.act('punch',g.actors[0].id)).toBe('tired'); expect(g.actors).toHaveLength(count);expect(g.stamina).toBe(23);
-    g.tick(1);expect(g.stamina).toBe(44);g.stamina=99;g.tick(1);expect(g.stamina).toBe(100);
+    g.tick(1);expect(g.stamina).toBeCloseTo(23 + STAMINA_REGEN[1], 1);g.stamina=99;g.tick(1);expect(g.stamina).toBe(100);
   });
   test('attack timeout removes enemy, damages HP and breaks combo', () => {
     const g = new Game();g.start(1);g.combo=4;g.tick(6.3);expect(g.hp).toBe(4);expect(g.combo).toBe(0);expect(g.defeated).toBe(1);
@@ -60,12 +61,28 @@ describe('deterministic arcade rules', () => {
     expect(g.actors).not.toContain(enemy);
     expect(g.events.some(e => e.type === 'ko' && e.id === enemy.id)).toBe(true);
   });
+  test('bar stamina regen/enemy count values', () => {
+    expect(STAMINA_REGEN[1]).toBeCloseTo(29.4, 1);
+    expect(STAMINA_REGEN[2]).toBe(21);
+    expect(LEVELS[1].goal).toBe(9);
+    expect(LEVELS[1].maxAlive).toBe(3);
+    expect(LEVELS[2].goal).toBe(22);
+    expect(LEVELS[2].maxAlive).toBe(5);
+
+    const g1 = new Game(); g1.start(1);
+    g1.stamina = 0; g1.tick(1);
+    expect(g1.stamina).toBeCloseTo(29.4, 1);
+
+    const g2 = new Game({ version: 2, unlocked: 2, best: 0 }); g2.start(2);
+    g2.stamina = 0; g2.tick(1);
+    expect(g2.stamina).toBeCloseTo(21, 1);
+  });
   test('a non-lethal hit staggers the enemy: its swing restarts', () => {
     const g = new Game(); g.start(1); const enemy = g.actors.find(t => t.kind === 'enemy')!; enemy.age = enemy.deadline - .2; // mid wind-up
     g.act('punch', enemy.id); expect(enemy.deadline - enemy.age).toBeGreaterThan(1.5);
   });
   test('pause freezes time, HP, stamina and actions', () => {
-    const g=new Game();g.start(1);g.stamina=50;g.pause();const snapshot=JSON.stringify(g);g.tick(100);expect(g.act('punch',g.actors[0].id)).toBe('blocked');expect(JSON.stringify(g)).toBe(snapshot);g.pause();g.tick(1);expect(g.stamina).toBe(71);
+    const g=new Game();g.start(1);g.stamina=50;g.pause();const snapshot=JSON.stringify(g);g.tick(100);expect(g.act('punch',g.actors[0].id)).toBe('blocked');expect(JSON.stringify(g)).toBe(snapshot);g.pause();g.tick(1);expect(g.stamina).toBeCloseTo(50 + STAMINA_REGEN[1], 1);
   });
   test('repeated background lifecycle signals never resume or advance paused gameplay', () => {
     const g=new Game();g.start(1);g.tick(.5);g.suspend();

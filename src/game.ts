@@ -79,6 +79,7 @@ export const costOf = (action: Action, holding: boolean, held?: PropKind | null)
 /** Enemy health: a punch knocks off about a third of a regular bully; heavy throws do more (prop table). */
 export const PUNCH_DAMAGE = 10;
 export const ENEMY_HP: Record<Skin, number> = { cat: 30, walrus: 30, bulldog: 40, weasel: 20 };
+export const STAMINA_REGEN: Record<number, number> = { 1: 29.4, 2: 21 };
 /** Health bars show on damage, hold, then fade so a calm street stays uncluttered. */
 export const HEALTHBAR = { hold: 2.2, fade: .8 } as const;
 export function healthBarAlpha(t: Pick<Actor, 'hurtAt'>, now: number) {
@@ -191,7 +192,7 @@ export class Game {
         if (won) { this.score += BET.prize; this.message = `Ни капли мимо! Бармен платит ${BET.prize}.`; } else this.message = 'Пролил! Бармен забирает свои триста.';
       }
     }
-    this.elapsed += dt; this.stamina = Math.min(100, this.stamina + dt * 21); this.spawnClock += dt;
+    this.elapsed += dt; this.stamina = Math.min(100, this.stamina + dt * (STAMINA_REGEN[this.level] ?? 21)); this.spawnClock += dt;
     for (const t of [...this.actors]) {
       if ((t.kind === 'friend' || t.kind === 'dog') && t.mad) {
         t.mad = Math.max(0, t.mad - dt);

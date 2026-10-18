@@ -125,7 +125,7 @@ const alley = {
 
 /** Level 1, the bar: piano and a draped table in front, the long counter mid-ground, a swinging door at the back. */
 const bar: LevelLayout = {
-  name: 'БАР «ДЛИННЫЕ РУКИ»', look: 'bar', pan: 0, goal: 12, deadline: 5.2,
+  name: 'БАР «ДЛИННЫЕ РУКИ»', look: 'bar', pan: 0, goal: 9, deadline: 5.2, maxAlive: 3,
   covers: [
     box('piano', 'piano', 'foreground', -2.75, 0, 3.0, 1.9, 1.3, .75, '#3b2c24'),
     box('table', 'table', 'foreground', 2.95, 0, 3.1, 1.3, 1.05, 1.1, '#ece6d2'),
@@ -135,10 +135,10 @@ const bar: LevelLayout = {
   ],
   slots: [
     { x: -2.55, y: 0, z: 2.2, layer: 'foreground', hideX: -2.55, hideY: -1.25, skin: 'walrus' },
-    { x: -1.1, y: .3, z: -3.15, layer: 'midground', hideX: -1.1, hideY: -.9, skin: 'walrus' },
+    { x: -1.1, y: .3, z: -3.15, layer: 'midground', hideX: -1.1, hideY: -.9, skin: 'bulldog' },
     { x: 2.55, y: 0, z: 2.3, layer: 'foreground', hideX: 3.0, hideY: -1.15, skin: 'walrus' },
     { x: 4.6, y: 0, z: -7.85, layer: 'background', hideX: 6.7, hideY: 0, skin: 'bulldog' },
-    { x: 1.9, y: .3, z: -3.15, layer: 'midground', hideX: 1.9, hideY: -.9, skin: 'bulldog' },
+    { x: 1.9, y: .3, z: -3.15, layer: 'midground', hideX: 1.9, hideY: -.9, skin: 'walrus' },
   ],
   order: [0, 1, 2, 3, 4],
   dogs: [{ x: .2, y: 0, z: -.7 }],
