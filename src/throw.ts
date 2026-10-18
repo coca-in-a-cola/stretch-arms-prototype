@@ -72,7 +72,14 @@ export function step(f: Flight, dt: number, world: readonly Hittable[]): Impact[
     for (const w of world) {
       if (w.kind === 'prop' || inside(f.pos, w)) continue;
       if (LIVING.has(w.kind) && (f.hits ? f.hits.includes(w.id) : f.struck)) continue;
-      const t = rayBox(f.pos, dir, w.min, w.max);
+      let min = w.min, max = w.max;
+      if (w.kind === 'enemy') {
+        const cx = (min.x + max.x) / 2, cy = (min.y + max.y) / 2;
+        const hw = ((max.x - min.x) / 2) * 1.3, hh = ((max.y - min.y) / 2) * 1.3;
+        min = { x: cx - hw, y: cy - hh, z: min.z - .1 };
+        max = { x: cx + hw, y: cy + hh, z: max.z + .1 };
+      }
+      const t = rayBox(f.pos, dir, min, max);
       if (t !== null && t <= len && (!best || t < best.t)) best = { t, hit: w };
     }
     // The ground (y = 0) is the floor of every level.

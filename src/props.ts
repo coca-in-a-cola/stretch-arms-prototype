@@ -25,31 +25,31 @@ export interface PropSpec {
 }
 
 /** What any reach for a prop costs up front; heavier props charge the rest of their `grab` cost on pick-up. */
-export const REACH_COST = 12;
+export const REACH_COST = 6;
 
 const p = (sprite: string, name: string, w: number, h: number, inset: readonly [number, number, number, number], mass: number, damage: number, grab: number, thr: number, breakable: boolean, shards?: string[]): PropSpec =>
   ({ sprite, name, w, h, inset, mass, damage, grab, throw: thr, breakable, shards });
 
 export const PROPS: Record<PropKind, PropSpec> = {
   // The bar's hero item: never a weapon, it belongs on the counter.
-  hat: p('gen_hat.png', 'котелок', .78, .975, [.03, .97, 0, .54], .5, 0, 12, 18, false),
-  bottle: p('gen_bottle.png', 'бутылка', .62, .82, [.26, .74, 0, .96], 1, 15, 12, 18, true, ['#3aa860', '#e8f6ee', '#f7c56d']),
-  barrel: p('gen_barrel.png', 'бочонок', .7, .82, [.1, .9, 0, .96], 3, 25, 14, 22, false),
-  mug: p('gen_mug.png', 'кружка', .56, .7, [.03, .97, 0, .97], 1, 15, 12, 16, true, ['#ffd23f', '#ffffff', '#bfe6f2']),
-  whiskey: p('gen_whiskey.png', 'виски', .5, .82, [.28, .72, 0, .97], 1, 15, 12, 16, true, ['#d07a2a', '#bfe6f2', '#f4e3b5']),
-  stool: p('gen_stool.png', 'табурет', .8, 1, [.073, .927, .006, .969], 3, 25, 14, 24, false),
-  spittoon: p('gen_spittoon.png', 'плевательница', .6, .75, [.031, .969, .006, .694], 2.5, 20, 12, 20, false),
-  shaker: p('gen_shaker.png', 'шейкер', .36, .45, [.197, .803, .006, .969], 1, 12, 12, 14, false),
-  eggs: p('gen_eggs.png', 'банка яиц', .5, .62, [.103, .897, .006, .969], 1.5, 15, 12, 16, true, ['#ffe680', '#bfe6f2', '#e8475f']),
-  plunger: p('gen_plunger.png', 'вантуз', .56, .7, [.211, .789, .006, .969], .8, 10, 12, 12, false),
-  hydrant: p('gen_hydrant.png', 'гидрант', .72, .9, [.094, .906, .006, .969], 5, 35, 18, 30, false),
-  tire: p('gen_tire.png', 'шина', .72, .9, [.031, .969, .006, .899], 3, 20, 14, 22, false),
-  melon: p('gen_melon.png', 'арбуз', .64, .8, [.031, .969, .006, .821], 2.5, 20, 12, 20, true, ['#3aa860', '#ff4f6d', '#1f1f1f']),
-  fish: p('gen_fish.png', 'рыба', .72, .9, [.031, .969, .006, .514], 1, 12, 12, 14, false),
-  anvil: p('gen_anvil.png', 'наковальня', .8, 1, [.031, .969, .006, .531], 7, 45, 22, 36, false),
-  chicken: p('gen_chicken.png', 'резиновая курица', .5, .62, [.252, .748, .006, .969], .5, 3, 12, 10, false),
-  bowling: p('gen_bowling.png', 'шар для боулинга', .4, .5, [.031, .969, .006, .75], 4, 30, 16, 26, false),
-  flowerpot: p('gen_flowerpot.png', 'цветочный горшок', .56, .7, [.137, .863, .006, .969], 1.5, 15, 12, 16, true, ['#e07a3a', '#6b4a32', '#ffffff']),
-  pie: p('gen_pie.png', 'кремовый пирог', .56, .7, [.031, .969, .006, .577], .8, 10, 12, 12, true, ['#fff3d6', '#ff4f6d', '#f1c27d']),
+  hat: p('gen_hat.png', 'котелок', .78, .975, [.03, .97, 0, .54], .5, 0, 6, 10, false),
+  bottle: p('gen_bottle.png', 'бутылка', .62, .82, [.26, .74, 0, .96], 1, 15, 6, 10, true, ['#3aa860', '#e8f6ee', '#f7c56d']),
+  barrel: p('gen_barrel.png', 'бочонок', .7, .82, [.1, .9, 0, .96], 3, 25, 7, 12, false),
+  mug: p('gen_mug.png', 'кружка', .56, .7, [.03, .97, 0, .97], 1, 15, 6, 10, true, ['#ffd23f', '#ffffff', '#bfe6f2']),
+  whiskey: p('gen_whiskey.png', 'виски', .5, .82, [.28, .72, 0, .97], 1, 15, 6, 10, true, ['#d07a2a', '#bfe6f2', '#f4e3b5']),
+  stool: p('gen_stool.png', 'табурет', .8, 1, [.073, .927, .006, .969], 3, 25, 7, 12, false),
+  spittoon: p('gen_spittoon.png', 'плевательница', .6, .75, [.031, .969, .006, .694], 2.5, 20, 6, 11, false),
+  shaker: p('gen_shaker.png', 'шейкер', .36, .45, [.197, .803, .006, .969], 1, 12, 6, 10, false),
+  eggs: p('gen_eggs.png', 'банка яиц', .5, .62, [.103, .897, .006, .969], 1.5, 15, 6, 10, true, ['#ffe680', '#bfe6f2', '#e8475f']),
+  plunger: p('gen_plunger.png', 'вантуз', .56, .7, [.211, .789, .006, .969], .8, 10, 6, 10, false),
+  hydrant: p('gen_hydrant.png', 'гидрант', .72, .9, [.094, .906, .006, .969], 5, 35, 9, 16, false),
+  tire: p('gen_tire.png', 'шина', .72, .9, [.031, .969, .006, .899], 3, 20, 7, 12, false),
+  melon: p('gen_melon.png', 'арбуз', .64, .8, [.031, .969, .006, .821], 2.5, 20, 6, 11, true, ['#3aa860', '#ff4f6d', '#1f1f1f']),
+  fish: p('gen_fish.png', 'рыба', .72, .9, [.031, .969, .006, .514], 1, 12, 6, 10, false),
+  anvil: p('gen_anvil.png', 'наковальня', .8, 1, [.031, .969, .006, .531], 7, 45, 11, 18, false),
+  chicken: p('gen_chicken.png', 'резиновая курица', .5, .62, [.252, .748, .006, .969], .5, 3, 6, 10, false),
+  bowling: p('gen_bowling.png', 'шар для боулинга', .4, .5, [.031, .969, .006, .75], 4, 30, 8, 14, false),
+  flowerpot: p('gen_flowerpot.png', 'цветочный горшок', .56, .7, [.137, .863, .006, .969], 1.5, 15, 6, 10, true, ['#e07a3a', '#6b4a32', '#ffffff']),
+  pie: p('gen_pie.png', 'кремовый пирог', .56, .7, [.031, .969, .006, .577], .8, 10, 6, 10, true, ['#fff3d6', '#ff4f6d', '#f1c27d']),
 };
 export const PROP_KINDS = Object.keys(PROPS) as PropKind[];

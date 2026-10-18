@@ -1,7 +1,8 @@
 import { describe, expect, test } from 'bun:test';
-import { rayBox, resolveShot, WHIFF_REACH, type Hittable, type Vec3 } from '../src/aim';
+import { rayBox, resolveShot, WHIFF_REACH, GRAB_RADIUS, type Hittable, type Vec3 } from '../src/aim';
 import { LEVELS, BODY, cameraFor, clampPan, bodyBox, hittables, pose } from '../src/layout';
 import { Game } from '../src/game';
+import { PROPS, REACH_COST } from '../src/props';
 
 const eye: Vec3 = { x: 0, y: 2, z: 10 };
 const toward = (p: Vec3, from = eye): Vec3 => ({ x: p.x - from.x, y: p.y - from.y, z: p.z - from.z });
@@ -97,7 +98,15 @@ describe('stamina and outcomes for free-aim strikes', () => {
   });
   test('thrown prop that whiffs is lost', () => {
     const g = new Game(); g.start(1); const prop = g.actors.find(t => t.kind === 'mug' || t.kind === 'whiskey')!;
-    expect(g.act('grab', prop.id)).toBe('grab'); g.spend('grab'); expect(g.resolve('grab', { kind: 'whiff' })).toBe('miss'); expect(g.held).toBeNull(); expect(g.stamina).toBe(100 - 12 - 16);
+    expect(g.act('grab', prop.id)).toBe('grab'); g.spend('grab'); expect(g.resolve('grab', { kind: 'whiff' })).toBe('miss'); expect(g.held).toBeNull(); expect(g.stamina).toBe(100 - REACH_COST - PROPS[prop.kind as 'mug'].throw);
+  });
+  test('grab succeeds with an off-centre click within the radius', () => {
+    const prop = boxAt(55, 'prop', 0, 0, 0, .4, .4);
+    const offCentre = toward({ x: .35, y: 0, z: 0 });
+    expect(resolveShot(eye, offCentre, [prop], 'punch').kind).toBe('whiff');
+    const grabShot = resolveShot(eye, offCentre, [prop], 'grab');
+    expect(grabShot.kind).toBe('prop');
+    expect(grabShot.id).toBe(55);
   });
 });
 

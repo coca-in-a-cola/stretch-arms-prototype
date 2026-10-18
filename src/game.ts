@@ -75,7 +75,7 @@ export function resultActions(g: { won: boolean; level: number; progress: Progre
   return [{ id: 'retry', label: 'ЕЩЁ РАЗ ↗', primary: true }, { id: 'select', label: 'ВЫБОР УРОВНЯ', primary: false }];
 }
 /** Stamina for a swing: a punch, a reach for a prop, or a throw of the held prop (heavier costs more). */
-export const costOf = (action: Action, holding: boolean, held?: PropKind | null) => action === 'punch' ? 24 : holding ? (held ? PROPS[held].throw : 18) : REACH_COST;
+export const costOf = (action: Action, holding: boolean, held?: PropKind | null) => action === 'punch' ? 24 : holding ? (held ? PROPS[held].throw : 10) : REACH_COST;
 /** Enemy health: a punch knocks off about a third of a regular bully; heavy throws do more (prop table). */
 export const PUNCH_DAMAGE = 10;
 export const ENEMY_HP: Record<Skin, number> = { cat: 30, walrus: 30, bulldog: 40, weasel: 20 };

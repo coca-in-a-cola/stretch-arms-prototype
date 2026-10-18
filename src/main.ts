@@ -8,7 +8,7 @@ import './style.css';
 import { makeStreet } from './street';
 import { makeBar } from './bar';
 import { Stream, cardAt } from './ult';
-import { PROPS, PROP_KINDS } from './props';
+import { PROPS, PROP_KINDS, REACH_COST } from './props';
 import { ragtimeScore } from './ragtime';
 import { LOOKS, greyscaleWorld, greyCanvas, greyColor } from './palette';
 import { armMetrics, restPose, punchPose, sideFor, drawArm as inkArm, type Avoid, type Pt } from './arm';
@@ -647,7 +647,7 @@ function perform(action: Action) {
   const ray = aimRay(pointer);
   sound('whoosh');
   const spot = { x: (pointer.x + 1) / 2, y: (1 - pointer.y) / 2 };
-  swing = { action, throwing, spot, ray, shot: resolveShot(ray.origin, ray.direction, currentHittables()), phase: 0, resolved: false, held, staminaBefore, staminaAfter: game.stamina };
+  swing = { action, throwing, spot, ray, shot: resolveShot(ray.origin, ray.direction, currentHittables(), throwing ? 'punch' : action), phase: 0, resolved: false, held, staminaBefore, staminaAfter: game.stamina };
   if (!motion()) { if (throwing) release(swing); else land(swing); }
   updateHud();
 }
@@ -969,7 +969,7 @@ function milestone(text: string) {
 /** Arrival: re-cast the same ray against the scene as it is *now* (actors keep moving while the fist flies). */
 function land(s: Swing) {
   s.resolved = true;
-  s.shot = resolveShot(s.ray.origin, s.ray.direction, currentHittables());
+  s.shot = resolveShot(s.ray.origin, s.ray.direction, currentHittables(), s.throwing ? 'punch' : s.action);
   const id = typeof s.shot.id === 'number' ? s.shot.id : undefined;
   const res = game.resolve(s.action, { kind: s.shot.kind, id: s.shot.id, point: s.shot.point });
   s.outcome = res;
@@ -1141,7 +1141,7 @@ function updateHud() {
   if (canvas.dataset.ult !== ult) canvas.dataset.ult = ult;
   set('message', game.message);
   const energy = document.getElementById('energy'); if (energy) energy.style.width = game.stamina + '%';
-  const grab = document.getElementById('grab'); if (grab) grab.innerHTML = game.held ? 'БРОСАЙ ↗<small>' + PROPS[game.held].name.toUpperCase() + ' · ' + costOf('grab', true, game.held) + ' СИЛ</small>' : 'ХВАТАЙ ◎<small>ПКМ / E · 12 СИЛ</small>';
+  const grab = document.getElementById('grab'); if (grab) grab.innerHTML = game.held ? 'БРОСАЙ ↗<small>' + PROPS[game.held].name.toUpperCase() + ' · ' + costOf('grab', true, game.held) + ' СИЛ</small>' : 'ХВАТАЙ ◎<small>ПКМ / E · ' + REACH_COST + ' СИЛ</small>';
 }
 
 /**
