@@ -83,7 +83,10 @@ describe('colour logic: grey world, colour means interactive', () => {
       // SA-V4-17: friends (must not hit) and the street's close-range thugs.
       'gen_mole_up.png', 'gen_mole_lantern.png', 'gen_mole_hurt.png',
       'gen_granny_idle.png', 'gen_granny_mad.png', 'gen_granny_fury.png', 'gen_kitten_idle.png', 'gen_kitten_mad.png', 'gen_kitten_fury.png', 'gen_pigeon_idle.png', 'gen_pigeon_mad.png', 'gen_pigeon_fury.png', 'gen_drunk_idle.png', 'gen_drunk_mad.png', 'gen_drunk_fury.png',
-      'gen_rat_appear.png', 'gen_rat_attack.png', 'gen_rat_ko.png', 'gen_gang_appear.png', 'gen_gang_attack.png', 'gen_gang_ko.png', 'gen_kid_appear.png', 'gen_kid_attack.png', 'gen_kid_ko.png'].sort());
+      'gen_rat_appear.png', 'gen_rat_attack.png', 'gen_rat_ko.png', 'gen_gang_appear.png', 'gen_gang_attack.png', 'gen_gang_ko.png', 'gen_kid_appear.png', 'gen_kid_attack.png', 'gen_kid_ko.png',
+      // SA-V4-18: the briefing herald and his blank flyers (aged paper, chroma boosted so it reads as colour).
+      'gen_herald_lean.png', 'gen_herald_point.png', 'gen_herald_mad.png',
+      'gen_flyer_tall.png', 'gen_flyer_tag.png', 'gen_flyer_taped.png', 'gen_flyer_wide.png', 'gen_flyer_pinned.png'].sort());
   });
   for (const f of backdrops) test(`${f}: painted backdrop is pure grey world`, () => {
     const { px } = readPng(join(root, 'public', 'assets', f));

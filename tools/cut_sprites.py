@@ -23,7 +23,7 @@ ART = ROOT / 'art'
 CAT_SCALE = 1.1
 JOBS = [
     # source, output, options: crop [x0,y0,x1,y1] in sheet px, blank = rows to clear from the top,
-    # mirror = flip horizontally, hole = min enclosed-paper area cleared (default 1400; eye whites are smaller), scale = fixed px scale (else fit), fit = 'height' | 'width' | 'box'
+    # mirror = flip horizontally, sat = chroma boost, out = [w, h] output frame, hole = min enclosed-paper area cleared (default 1400; eye whites are smaller), scale = fixed px scale (else fit), fit = 'height' | 'width' | 'box'
     ('gen_color_gemini-bully-solo.jpg', 'bully.png', {}),
     ('gen_color_gemini-dog-solo.jpg', 'dog_halo.png', {'blank': 205}),
     ('gen_color_gen_cat_poses.jpg', 'gen_cat_windup.png', {'crop': [10, 180, 390, 760], 'mirror': True, 'scale': CAT_SCALE}),
@@ -86,6 +86,16 @@ JOBS = [
     ('gen_thugs_poses.jpg', 'gen_kid_ko.png', {'crop': [670, 715, 1000, 1000], 'scale': 1.5}),
     # Backdrop: the B/W bar painting, kept opaque and forced to pure grey (world rule), PNG so no .jpg ships.
     ('gen_bar_bg.jpg', 'gen_bar_backdrop.png', {'plain': True}),
+    # SA-V4-18: the herald (briefing host) — leaning in with a flyer / pointing / offended; shared scale, bigger frame
+    # (he is a close-up foreground figure). Flyers: five blank aged posters (the WANTED one is skipped: printed English).
+    ('gen_herald_poses.jpg', 'gen_herald_lean.png', {'crop': [30, 55, 555, 485], 'scale': 1.5, 'out': [800, 720]}),
+    ('gen_herald_poses.jpg', 'gen_herald_point.png', {'crop': [560, 55, 990, 525], 'scale': 1.5, 'out': [800, 720]}),
+    ('gen_herald_poses.jpg', 'gen_herald_mad.png', {'crop': [555, 530, 985, 990], 'scale': 1.5, 'out': [800, 720]}),
+    ('gen_flyers.jpg', 'gen_flyer_tall.png', {'crop': [335, 35, 735, 600], 'hole': 10**9, 'sat': 2.6, 'scale': 1, 'out': [400, 565]}),
+    ('gen_flyers.jpg', 'gen_flyer_tag.png', {'crop': [735, 55, 995, 415], 'hole': 10**9, 'sat': 2.6, 'scale': 1.4, 'out': [364, 504]}),
+    ('gen_flyers.jpg', 'gen_flyer_taped.png', {'crop': [30, 530, 325, 975], 'hole': 10**9, 'sat': 2.6, 'scale': 1.25, 'out': [369, 556]}),
+    ('gen_flyers.jpg', 'gen_flyer_wide.png', {'crop': [340, 635, 715, 945], 'hole': 10**9, 'sat': 2.6, 'scale': 1.2, 'out': [450, 372]}),
+    ('gen_flyers.jpg', 'gen_flyer_pinned.png', {'crop': [725, 560, 1000, 975], 'hole': 10**9, 'sat': 2.6, 'scale': 1.3, 'out': [358, 540]}),
 ]
 JS = '''async ([src, o]) => {
   const img = new Image(); img.src = src; await img.decode();
@@ -139,15 +149,18 @@ JS = '''async ([src, o]) => {
     }
     if (px[i + 3] > 20) { x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y); }
   }
+  // Boost chroma around the pixel's own grey (aged paper is too pale to read as 'colour = interactive' in the grey world).
+  if (o.sat) for (let i = 0; i < px.length; i += 4) { if (!px[i + 3]) continue; const l = (px[i] + px[i+1] + px[i+2]) / 3; for (let k = 0; k < 3; k++) px[i + k] = Math.max(0, Math.min(255, Math.round(l + (px[i + k] - l) * o.sat))); }
   g.putImageData(d, 0, 0);
-  const out = document.createElement('canvas'); out.width = 512; out.height = 640; const ox = out.getContext('2d');
-  const bw = x1 - x0 + 1, bh = y1 - y0 + 1, s = o.scale ?? Math.min(480 / bw, 620 / bh);
+  const [OW, OH] = o.out ?? [512, 640], FY = OH - 4;
+  const out = document.createElement('canvas'); out.width = OW; out.height = OH; const ox = out.getContext('2d');
+  const bw = x1 - x0 + 1, bh = y1 - y0 + 1, s = Math.min(o.scale ?? Math.min((OW - 32) / bw, (OH - 20) / bh), (OW - 4) / bw, (OH - 6) / bh);
   ox.imageSmoothingQuality = 'high';
-  if (o.mirror) { ox.translate(512, 0); ox.scale(-1, 1); }
-  const dx = (512 - bw * s) / 2, dy = 636 - bh * s;
+  if (o.mirror) { ox.translate(OW, 0); ox.scale(-1, 1); }
+  const dx = (OW - bw * s) / 2, dy = FY - bh * s;
   ox.drawImage(c, x0, y0, bw, bh, dx, dy, bw * s, bh * s);
   // Visible box as fractions of the frame (for hitbox insets): left, right, bottom, top (from the feet up).
-  const box = [dx / 512, (dx + bw * s) / 512, (640 - 636) / 640, (636 - dy) / 640].map(v => +v.toFixed(3));
+  const box = [dx / OW, (dx + bw * s) / OW, (OH - FY) / OH, (FY - dy) / OH].map(v => +v.toFixed(3));
   return { url: out.toDataURL('image/png'), crop: [x0, y0, x1, y1], scale: s, holes, dropped, box };
 }'''
 
