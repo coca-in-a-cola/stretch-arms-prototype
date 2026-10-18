@@ -948,10 +948,10 @@ function syncHazards(dt: number) {
     if (!v) {
       const size = h.kind === 'piano' ? 2.1 : 1.4, group = new THREE.Group(); group.position.set(h.x, 0, h.z + .15);
       const obj = new THREE.Mesh(new THREE.PlaneGeometry(size, size).translate(0, size / 2, 0), new THREE.MeshBasicMaterial({ map: hazardTex[h.kind], alphaTest: .5, side: THREE.DoubleSide }));
-      const shadow = new THREE.Mesh(new THREE.CircleGeometry(size * .55, 28), new THREE.MeshBasicMaterial({ color: '#111111', transparent: true, opacity: .45, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4 })); shadow.rotation.x = -Math.PI / 2; shadow.position.y = .14; // clear of the floor tiles shadow.renderOrder = 1;
+      const shadow = new THREE.Mesh(new THREE.CircleGeometry(size * .55, 28), new THREE.MeshBasicMaterial({ color: '#1c1c1c', polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4 })); shadow.rotation.x = -Math.PI / 2; shadow.position.y = .06; // a solid ink-black cartoon shadow shadow.renderOrder = 1;
       group.add(shadow, obj); actorGroup.add(group); v = { group, obj, shadow }; hazardViews.set(h.id, v);
     }
-    const k = Math.min(1, h.age / HAZARD.warn); v.obj.position.y = 16 * (1 - k * k); v.obj.rotation.z = Math.sin(h.age * 3) * .15 * (1 - k); v.shadow.scale.setScalar(.3 + 1.1 * k); (v.shadow.material as THREE.MeshBasicMaterial).opacity = .3 + .45 * k; // the camera foreshortens the disc by itself
+    const k = Math.min(1, h.age / HAZARD.warn); v.obj.position.y = 8.5 * (1 - k * k); v.obj.rotation.z = Math.sin(h.age * 3) * .15 * (1 - k); v.shadow.scale.setScalar(.25 + 1.15 * k); // grows as it falls; the camera foreshortens the disc by itself
   }
   for (const [id, v] of hazardViews) {
     if (game.hazards.some(h => h.id === id)) continue;

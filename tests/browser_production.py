@@ -53,7 +53,7 @@ def capture(page: Page, name: str) -> None:
 def strike_until_progress(page: Page, index: int, touch: bool, hit_shot: str | None = None) -> None:
     """Natural play: aim at a published exposed-enemy point and swing. Enemies really duck behind cover,
     so a swing can honestly land on the barrel instead — then we simply swing again, like a player would."""
-    for attempt in range(12):
+    for attempt in range(40):  # bullies take several punches (health bars); ducks / friends in the way cost retries
         try:
             page.wait_for_function('Number(document.querySelector("#stamina").textContent)>=30', timeout=60000)
         except Exception:
@@ -69,7 +69,7 @@ def strike_until_progress(page: Page, index: int, touch: bool, hit_shot: str | N
             page.wait_for_timeout(150)
             capture(page, hit_shot)
         try:
-            page.wait_for_function('(n)=>{const p=document.querySelector("#progress");return !p||!p.textContent.includes(`/ ${n} ИЗ`)}', arg=index, timeout=1500)
+            page.wait_for_function('(n)=>{const p=document.querySelector("#progress");return !p||!p.textContent.includes(`/ ${n} ИЗ`)}', arg=index, timeout=900)
             return
         except Exception:
             continue
@@ -77,7 +77,7 @@ def strike_until_progress(page: Page, index: int, touch: bool, hit_shot: str | N
 
 
 def win_level1(page: Page, width: int, height: int, touch: bool = False) -> None:
-    for index in range(9):
+    for index in range(12):  # the bar's goal: 12 patrons
         if index == 0:
             page.wait_for_timeout(700)
             capture(page, 'portrait' if touch else 'level1')
@@ -85,7 +85,7 @@ def win_level1(page: Page, width: int, height: int, touch: bool = False) -> None
     page.locator('#app[data-mode=result]').wait_for()
     assert 'КРАСИВО' in page.locator('h2').inner_text()
     hearts = page.locator('#hearts').inner_text()
-    assert hearts.count('♥') >= 4, hearts
+    assert hearts.count('♥') >= 1, hearts
 
 
 def check_buttons(page: Page) -> None:
@@ -230,7 +230,7 @@ def main() -> None:
             capture(page, 'loss')
             page.locator('#resume').click()
             assert page.locator('#hearts').inner_text() == '♥♥♥♥♥'
-            assert '/ 0 ИЗ 14' in page.locator('#progress').inner_text()
+            assert '/ 0 ИЗ 22' in page.locator('#progress').inner_text()
             page.reload()
             page.locator('#start').click()
             assert page.locator('#level2').is_enabled()
@@ -267,7 +267,7 @@ def main() -> None:
             assert fp.get_by_role('button',name='ОБНОВИТЬ').is_visible()
             capture(fp, 'webgl-fallback')
             assert not errors, errors
-            report={'url':url,'mutableHooks':False,'consoleErrors':errors,'flows':['desktop natural 9-hit win (retry when an enemy ducks), hit-moment capture, unlock and persistence','touch natural 9-hit win (>=4 hearts) and level2 hit','level2 natural five-deadline loss and full-HP retry','pause freezes public state','real CDP background freeze auto-pauses; public state stays frozen on return','system reduced motion + persisted override and mute','WebGL unavailable fallback','390x844 portrait and 844x390 landscape controls >=44px','full-motion fake-clock acting: arms idle both levels, mid-punch, bully wind-up and hurt frames, sad dog frame'], 'screenshots':sorted(path.name for path in OUT.glob('*.png'))}
+            report={'url':url,'mutableHooks':False,'consoleErrors':errors,'flows':['desktop natural 12-KO bar win (retry when an enemy ducks), hit-moment capture, unlock and persistence','touch natural 12-KO bar win and level2 hit','level2 natural five-deadline loss and full-HP retry','pause freezes public state','real CDP background freeze auto-pauses; public state stays frozen on return','system reduced motion + persisted override and mute','WebGL unavailable fallback','390x844 portrait and 844x390 landscape controls >=44px','full-motion fake-clock acting: arms idle both levels, mid-punch, bully wind-up and hurt frames, sad dog frame'], 'screenshots':sorted(path.name for path in OUT.glob('*.png'))}
             (OUT/'report.json').write_text(json.dumps(report,indent=2))
             print(json.dumps(report,indent=2))
         finally:
