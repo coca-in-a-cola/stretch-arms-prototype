@@ -1,11 +1,12 @@
 import * as THREE from 'three';
-import { Game, loadProgress, resultActions, PROGRESS_KEY, costOf, ULT, type Action, type Kind, type Actor, type Outcome } from './game';
+import { Game, loadProgress, resultActions, healthBarAlpha, PROGRESS_KEY, costOf, ULT, type Action, type Kind, type Actor, type Outcome } from './game';
 import { resolveShot, type Hittable, type Shot, type Vec3 } from './aim';
-import { LEVELS, BODY, WINDUP, YARD_X, ALLEY_X, LAST_LEVEL, clampPan, pose, dogWalk, hittables, cameraFor, onLanding, type Cover, type BodyKind, type Skin } from './layout';
+import { LEVELS, BODY, SKIN_INSET, WINDUP, YARD_X, ALLEY_X, LAST_LEVEL, clampPan, pose, dogWalk, hittables, cameraFor, onLanding, type Cover, type BodyKind, type Skin } from './layout';
 import './style.css';
 import { makeStreet } from './street';
 import { makeBar } from './bar';
 import { Stream } from './ult';
+import { PROPS, PROP_KINDS } from './props';
 import { LOOKS, greyscaleWorld, greyCanvas, greyColor } from './palette';
 import { armMetrics, restPose, punchPose, sideFor, drawArm as inkArm, type Avoid, type Pt } from './arm';
 import { reducedMotion, unlockAudio, sound, trickle, settingsUi, bindSettings } from './preferences';
@@ -239,10 +240,10 @@ function spriteTexture(file: string, fallback: Kind | 'bottle' | 'barrel') {
   loader.load(asset(file), loaded => { tex.image = loaded.image; tex.needsUpdate = true; }, undefined, () => { /* keep procedural sprite */ });
   return tex;
 }
-const textures: Record<BodyKind, THREE.Texture> = {
-  enemy: spriteTexture('bully.png', 'enemy'), dog: spriteTexture('gen_dog_sit.png', 'dog'), bottle: spriteTexture('gen_bottle.png', 'bottle'), barrel: spriteTexture('gen_barrel.png', 'barrel'),
-  hat: spriteTexture('gen_hat.png', 'barrel'), mug: spriteTexture('gen_mug.png', 'bottle'), whiskey: spriteTexture('gen_whiskey.png', 'bottle'),
-};
+const textures = {
+  enemy: spriteTexture('bully.png', 'enemy'), dog: spriteTexture('gen_dog_sit.png', 'dog'),
+  ...Object.fromEntries(PROP_KINDS.map(k => [k, spriteTexture(PROPS[k].sprite, k === 'barrel' || k === 'hat' ? 'barrel' : 'bottle')])),
+} as Record<BodyKind, THREE.Texture>;
 /** Bar patrons: one drawn pose each (wind-up / hurt / knockout are acted with squash, tint and spin). */
 const skins: Record<Exclude<Skin, 'cat'>, THREE.Texture> = { walrus: spriteTexture('gen_walrus.png', 'enemy'), bulldog: spriteTexture('gen_bulldog.png', 'enemy'), weasel: spriteTexture('gen_weasel.png', 'enemy') };
 /** Drawn acting frames (gen_ sheets): the bully's wind-up / hurt / knocked-out poses, the dog's walk and sad sit. */
@@ -312,7 +313,7 @@ function overlay(map: THREE.Texture, w: number, h: number, order = 2) {
 
 interface ActorView {
   kind: Kind; group: THREE.Group; body: THREE.Group; sprite: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial>;
-  flash: number; sad: number; facing: number; frame?: string; wound?: boolean; skin?: Exclude<Skin, 'cat'>; wet?: number; yuck?: boolean; warning?: THREE.Sprite; stars?: THREE.Sprite; halo?: THREE.Sprite; cloud?: THREE.Sprite;
+  flash: number; sad: number; facing: number; /** Health bar: the trailing 'just lost' chunk, eased down to the real value. */ ghost?: number; frame?: string; wound?: boolean; skin?: Exclude<Skin, 'cat'>; wet?: number; yuck?: boolean; warning?: THREE.Sprite; stars?: THREE.Sprite; halo?: THREE.Sprite; cloud?: THREE.Sprite;
 }
 const actorGroup = new THREE.Group(); scene.add(actorGroup);
 const views = new Map<number, ActorView>();
@@ -532,6 +533,7 @@ const COMBO_WORDS = ['', '', 'ДВОЙНОЙ!', 'ТРОЙНОЙ!', 'РАЗМАШ
 function drainEvents(at?: { x: number; y: number }) {
   for (const e of game.events) {
     const v = views.get(e.id); const p = at ?? (v ? toScreen({ x: v.group.position.x, y: v.group.position.y + 1.2, z: v.group.position.z }) : { x: innerWidth / 2, y: innerHeight / 2 });
+    if (e.type === 'hurt' && e.amount) { const t = game.actors.find(a => a.id === e.id) ?? (v ? { x: v.group.position.x, y: v.group.position.y, z: v.group.position.z } : null); if (t) { const h = v ? barAnchor(v) : { x: t.x, y: t.y + 2, z: t.z ?? 0 }; damageNumbers.push({ ...h, amount: e.amount, age: 0, big: e.amount > 10 }); } if (v) v.flash = 1; }
     if (e.type === 'ko' || e.type === 'smash') { exits.set(e.id, 'ko'); if (e.type === 'ko') sound('ko'); }
     if (e.type === 'ko' && e.combo >= 2) callout(`КОМБО ×${e.combo} ${COMBO_WORDS[Math.min(e.combo, 5)]}`, p.x, p.y - 70, 'combo');
     if (e.type === 'attack') { exits.set(e.id, 'attack'); sound('attack'); callout('БАЦ! −♥', p.x, p.y, 'bad'); if (motion()) shake = .22; }
@@ -636,7 +638,7 @@ document.addEventListener('freeze', suspendPage);
 addEventListener('pagehide', suspendPage);
 
 function button(id: string, handler: () => void) { document.getElementById(id)?.addEventListener('click', () => { unlockAudio(); sound('ui'); handler(); }); }
-function startLevel(level: number) { if (game.start(level)) { pan = 0; panVel = 0; lastMode = ''; } renderUi(); }
+function startLevel(level: number) { if (game.start(level)) { pan = 0; panVel = 0; lastMode = ''; damageNumbers.length = 0; } renderUi(); }
 function chrome() { return '<div class="topline"><div class="brand"><span>↗</span> ДВОР ДА ДЕЛО</div><div class="tag">РУКИ ДЛИННЕЕ. ДЕНЬ ЛУЧШЕ.</div></div>'; }
 
 function renderUi() {
@@ -801,6 +803,45 @@ function updateUlt(dt: number) {
     if (near) near.r = Math.min(near.max, near.r + dt * m * .08); else { puddles.push({ x: fx, y: fy, r: m * .015, max: m * (.07 + Math.random() * .04) }); if (puddles.length > 14) puddles.shift(); }
   }
 }
+// -------------------------------------------------------------------------------------------------
+// HEALTH BARS + DAMAGE NUMBERS: colour HUD info drawn over each hurt enemy, sized by its depth, fading when calm.
+// -------------------------------------------------------------------------------------------------
+const damageNumbers: { x: number; y: number; z: number; amount: number; age: number; big: boolean }[] = [];
+/** World point just above the drawn head of an enemy view (follows its rise / duck). */
+function barAnchor(v: ActorView) {
+  const top = v.skin ? SKIN_INSET[v.skin][3] : BODY.enemy.inset[3];
+  return { x: v.group.position.x, y: v.group.position.y + BODY.enemy.h * top + .16, z: v.group.position.z };
+}
+function roundRect(g: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) { g.beginPath(); g.roundRect(x, y, w, h, r); }
+function drawHealthBars(g: CanvasRenderingContext2D, dt: number, ink: number) {
+  for (const t of game.actors) {
+    if (t.kind !== 'enemy' || !t.maxHp) continue;
+    const v = views.get(t.id), a = healthBarAlpha(t, game.elapsed); if (!v || a <= 0) continue;
+    const at = barAnchor(v), p = toScreen(at), q = toScreen({ ...at, x: at.x + 1 }), unit = Math.abs(q.x - p.x);
+    const w = THREE.MathUtils.clamp(unit * .95, 36, 150), h = Math.max(8, w * .16), x = p.x - w / 2, y = p.y - h, ratio = (t.hp ?? 0) / t.maxHp;
+    v.ghost = Math.max(ratio, (v.ghost ?? 1) - dt * .9);
+    g.save(); g.globalAlpha = a;
+    roundRect(g, x, y, w, h, h / 2); g.fillStyle = '#2b2b2b'; g.fill();
+    if (v.ghost > ratio) { roundRect(g, x, y, w * v.ghost, h, h / 2); g.fillStyle = '#fff6c8'; g.fill(); }
+    roundRect(g, x, y, Math.max(h, w * ratio), h, h / 2); g.fillStyle = ratio > .6 ? '#8fdc2a' : ratio > .3 ? '#ffd84a' : '#ff4f6d'; if (ratio > 0) g.fill();
+    if (v.flash > .3) { roundRect(g, x, y, w, h, h / 2); g.fillStyle = `rgba(255,255,255,${(v.flash - .3) * .9})`; g.fill(); }
+    // Segment ticks every 10 HP: you can count the punches left.
+    g.strokeStyle = '#151715'; g.lineWidth = Math.max(1.5, ink * .3);
+    for (let k = 10; k < t.maxHp; k += 10) { const sx = x + w * k / t.maxHp; g.beginPath(); g.moveTo(sx, y + 2); g.lineTo(sx, y + h - 2); g.stroke(); }
+    roundRect(g, x, y, w, h, h / 2); g.lineWidth = Math.max(2, ink * .45); g.stroke();
+    g.beginPath(); g.moveTo(x + h * .6, y + h * .3); g.lineTo(x + w * Math.max(.1, ratio) - h * .4, y + h * .3); g.strokeStyle = 'rgba(255,255,255,.55)'; g.lineWidth = Math.max(1, h * .16); g.lineCap = 'round'; g.stroke(); // shine
+    g.restore();
+  }
+  for (let i = damageNumbers.length - 1; i >= 0; i--) {
+    const d = damageNumbers[i]; d.age += dt; if (d.age > 1) { damageNumbers.splice(i, 1); continue; }
+    const p = toScreen({ x: d.x, y: d.y + d.age * .7, z: d.z }), q = toScreen({ x: d.x + 1, y: d.y, z: d.z }), unit = Math.abs(q.x - p.x);
+    const pop = d.age < .12 ? .6 + d.age / .12 * .6 : 1.2 - Math.min(.2, (d.age - .12));
+    const size = THREE.MathUtils.clamp(unit * (d.big ? .55 : .42), 16, 64) * pop;
+    g.save(); g.globalAlpha = Math.min(1, (1 - d.age) * 2.5); g.font = `900 ${size}px Arial`; g.textAlign = 'center'; g.textBaseline = 'bottom';
+    g.lineJoin = 'round'; g.lineWidth = Math.max(3, size * .16); g.strokeStyle = '#151715'; g.strokeText('−' + d.amount, p.x + (d.big ? 0 : size * .3), p.y - 4);
+    g.fillStyle = d.big ? '#ff6b3d' : '#ffd84a'; g.fillText('−' + d.amount, p.x + (d.big ? 0 : size * .3), p.y - 4); g.restore();
+  }
+}
 const YELLOW = '#ffd400', GLOSS = '#fff6b8';
 function drawStream(g: CanvasRenderingContext2D, W: number, H: number, time: number, ink: number) {
   const m = Math.min(W, H);
@@ -828,13 +869,15 @@ function drawStream(g: CanvasRenderingContext2D, W: number, H: number, time: num
   for (const d of drops) { g.beginPath(); g.arc(d.x * W, d.y * H, m * .0045 + 1, 0, Math.PI * 2); g.fillStyle = YELLOW; g.fill(); g.lineWidth = 1.5; g.strokeStyle = '#151715'; g.stroke(); }
 }
 
+let lastDraw = 0;
 function drawArm(time: number) {
-  const W = innerWidth, H = innerHeight, g = armCtx, dpr = armCanvas.width / Math.max(1, W);
+  const W = innerWidth, H = innerHeight, g = armCtx, dpr = armCanvas.width / Math.max(1, W), dt = Math.max(0, Math.min(.05, time - lastDraw)); lastDraw = time;
   g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(0, 0, armCanvas.width, armCanvas.height);
   if (game.mode !== 'play' && game.mode !== 'pause') return;
   g.setTransform(dpr, 0, 0, dpr, 0, 0);
   if (isBar()) drawStream(g, W, H, time, armMetrics(W, H).ink);
   const { ink, rim } = armMetrics(W, H), avoid = avoidRect, s = swing, k = s ? s.phase : 1;
+  drawHealthBars(g, dt, ink);
   const spot = s ? { x: s.spot.x * W, y: s.spot.y * H } : { x: 0, y: 0 };
   const active = s && k < 1 ? sideFor(spot, W) : 0;
   // Impact burst sits behind the glove so the fist stays readable on contact.

@@ -24,7 +24,7 @@ describe('honest free aim: the hit is resolved where the fist lands', () => {
     // Impact point is on the enemy's front face, right where the ray was aimed — no snapping to its centre.
     expect(hit.point.z).toBeCloseTo(box.max.z, 3);
     expect(Math.abs(hit.point.x - head.x)).toBeLessThan(.01); expect(Math.abs(hit.point.y - head.y)).toBeLessThan(.01);
-    expect(g.spend('punch')).toBe(true); expect(g.resolve('punch', hit)).toBe('hit'); expect(g.actors).not.toContain(enemy);
+    expect(g.spend('punch')).toBe(true); expect(g.resolve('punch', hit)).toBe('hit'); expect(enemy.hp).toBe(enemy.maxHp! - 10);
 
     // Same enemy, aim 8 cm above the top of its hitbox: nothing magnetises the fist onto it.
     const g2 = new Game({ version: 2, unlocked: 2, best: 0 }); g2.start(2); g2.spawn(); g2.spawn();

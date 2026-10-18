@@ -1,12 +1,13 @@
 // Depth-layered level layouts. Pure data + pose math shared by rendering, hit-testing and unit tests,
 // so what you see is exactly what the fist can hit.
 import type { Hittable, Vec3 } from './aim';
+import { PROPS, type PropKind } from './props';
+export type { PropKind } from './props';
 
 export type Layer = 'foreground' | 'midground' | 'background';
 export type CoverLook = 'barrel' | 'crate' | 'plank' | 'rail' | 'post' | 'wall' | 'interior' | 'dumpster' | 'pallet' | 'van' | 'barrier' | 'piano' | 'table' | 'counter' | 'shelves';
 /** Who peeks from a slot: the street cat, or one of the bar patrons. */
 export type Skin = 'cat' | 'walrus' | 'bulldog' | 'weasel';
-export type PropKind = 'bottle' | 'barrel' | 'hat' | 'mug' | 'whiskey';
 export interface Cover { id: string; look: CoverLook; layer: Layer; min: Vec3; max: Vec3; color: string; }
 /** Enemy spawn point behind a cover. `hide` is where the sprite waits fully occluded; it slides/rises to `x,y`. */
 export interface Slot { x: number; y: number; z: number; layer: Layer; hideX: number; hideY: number; skin?: Skin; }
@@ -23,15 +24,13 @@ export interface LevelLayout {
   hat?: Vec3; landing?: { cover: string; band: number };
 }
 
-export const BODY = {
+export interface Body { w: number; h: number; inset: readonly [number, number, number, number]; }
+/** World size of every drawn frame and its visible box (the hitbox): characters here, props from the prop table. */
+export const BODY: Record<'enemy' | 'dog' | PropKind, Body> = {
   enemy: { w: 1.52, h: 1.9, inset: [.2, .82, .03, .95] },
   dog: { w: 1.1, h: 1.375, inset: [.14, .9, .03, .95] },
-  bottle: { w: .62, h: .82, inset: [.26, .74, 0, .96] },
-  barrel: { w: .7, h: .82, inset: [.1, .9, 0, .96] },
-  hat: { w: .78, h: .975, inset: [.03, .97, 0, .54] },
-  mug: { w: .56, h: .7, inset: [.03, .97, 0, .97] },
-  whiskey: { w: .5, h: .82, inset: [.28, .72, 0, .97] },
-} as const;
+  ...PROPS,
+};
 /** Bar patrons fill their frames differently (cut boxes from tools/cut_sprites.py). */
 export const SKIN_INSET: Record<Skin, readonly [number, number, number, number]> = {
   cat: BODY.enemy.inset, walrus: [.08, .92, .03, .93], bulldog: [.14, .86, .03, .75], weasel: [.22, .78, .03, .78],

@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
-import { Game, readProgress, loadProgress, resultActions, PROGRESS_KEY, LEGACY_PROGRESS_KEY, type Progress } from '../src/game';
+import { PROPS, REACH_COST } from '../src/props';
+import { Game, ENEMY_HP, PUNCH_DAMAGE, healthBarAlpha, readProgress, loadProgress, resultActions, PROGRESS_KEY, LEGACY_PROGRESS_KEY, type Progress } from '../src/game';
 
 describe('deterministic arcade rules', () => {
   test('the bar is level 1 (open from the start); the merged street is level 2 and spawns across depth layers on both halves', () => {
@@ -33,10 +34,24 @@ describe('deterministic arcade rules', () => {
     expect(g.act('punch',dog.id)).toBe('protected');expect(g.hp).toBe(4);expect(g.score).toBe(150);expect(g.actors).toContain(dog);
     g.stamina=100;g.act('punch',dog.id);g.stamina=100;g.act('punch',dog.id);expect(g.score).toBe(0);
   });
-  test('grab prop then throw kills an enemy with premium score', () => {
-    const g = new Game();g.start(1);const prop=g.actors.find(t=>t.kind==='mug'||t.kind==='whiskey')!;const enemy=g.actors.find(t=>t.kind==='enemy')!;
-    expect(g.act('grab',prop.id)).toBe('grab');expect(g.held).toBe(prop.kind);expect(g.stamina).toBe(88);
-    expect(g.act('grab',enemy.id)).toBe('throw');expect(g.held).toBeNull();expect(g.score).toBe(180);expect(g.stamina).toBe(70);expect(g.defeated).toBe(1);
+  test('health bars: every enemy has HP; a punch takes a third, a thrown prop more; the bar shows on damage and fades', () => {
+    const g = new Game(); g.start(1); const enemy = g.actors.find(t => t.kind === 'enemy')!;
+    expect(enemy.hp).toBe(ENEMY_HP.walrus); expect(enemy.maxHp).toBe(30); expect(healthBarAlpha(enemy, g.elapsed)).toBe(0); // no bar before any damage
+    expect(g.act('punch', enemy.id)).toBe('hit'); expect(enemy.hp).toBe(30 - PUNCH_DAMAGE); expect(g.actors).toContain(enemy);
+    expect(g.events.find(e => e.type === 'hurt')).toMatchObject({ id: enemy.id, amount: PUNCH_DAMAGE });
+    expect(healthBarAlpha(enemy, g.elapsed)).toBe(1); expect(healthBarAlpha(enemy, g.elapsed + 2.6)).toBeGreaterThan(0); expect(healthBarAlpha(enemy, g.elapsed + 3.1)).toBe(0);
+    const prop = g.actors.find(t => t.kind === 'mug' || t.kind === 'whiskey')!;
+    g.stamina = 100; expect(g.act('grab', prop.id)).toBe('grab'); expect(g.held).toBe(prop.kind); expect(g.stamina).toBe(100 - REACH_COST);
+    g.stamina = 100; expect(g.act('grab', enemy.id)).toBe('throw'); expect(g.stamina).toBe(100 - PROPS[prop.kind as 'mug'].throw);
+    expect(enemy.hp).toBe(30 - PUNCH_DAMAGE - PROPS[prop.kind as 'mug'].damage); expect(PROPS.mug.damage).toBeGreaterThan(PUNCH_DAMAGE);
+    expect(g.defeated).toBe(0);
+    g.stamina = 100; g.act('punch', enemy.id); expect(g.actors).not.toContain(enemy); expect(g.defeated).toBe(1); expect(g.events.some(e => e.type === 'ko' && e.id === enemy.id)).toBe(true);
+    // Heavier props hit harder and cost more to lift and throw.
+    expect(PROPS.anvil.damage).toBeGreaterThan(PROPS.bottle.damage); expect(PROPS.anvil.throw).toBeGreaterThan(PROPS.bottle.throw); expect(PROPS.anvil.grab).toBeGreaterThan(REACH_COST);
+  });
+  test('a non-lethal hit staggers the enemy: its swing restarts', () => {
+    const g = new Game(); g.start(1); const enemy = g.actors.find(t => t.kind === 'enemy')!; enemy.age = enemy.deadline - .2; // mid wind-up
+    g.act('punch', enemy.id); expect(enemy.deadline - enemy.age).toBeGreaterThan(1.5);
   });
   test('pause freezes time, HP, stamina and actions', () => {
     const g=new Game();g.start(1);g.stamina=50;g.pause();const snapshot=JSON.stringify(g);g.tick(100);expect(g.act('punch',g.actors[0].id)).toBe('blocked');expect(JSON.stringify(g)).toBe(snapshot);g.pause();g.tick(1);expect(g.stamina).toBe(71);
@@ -50,7 +65,7 @@ describe('deterministic arcade rules', () => {
   });
   test('win unlocks second level and persists versioned best; retry resets all health', () => {
     let saved: Progress | undefined;const g=new Game(undefined,p=>{saved=p;});g.start(1);
-    for(let i=0;i<g.goal;i++){if(!g.actors.some(t=>t.kind==='enemy'))g.spawn();g.stamina=100;g.act('punch',g.actors.find(t=>t.kind==='enemy')!.id);}
+    for(let i=0;i<200&&g.mode==='play';i++){if(!g.actors.some(t=>t.kind==='enemy'))g.spawn();g.stamina=100;g.act('punch',g.actors.find(t=>t.kind==='enemy')!.id);}
     expect(g.mode).toBe('result');expect(g.won).toBe(true);expect(g.score).toBeGreaterThan(900);expect(saved?.unlocked).toBe(2);expect(saved?.version).toBe(2);
     expect(g.start(2)).toBe(true);g.hp=1;g.held='barrel';g.combo=8;g.start(2);expect(g.hp).toBe(5);expect(g.stamina).toBe(100);expect(g.held).toBeNull();expect(g.combo).toBe(0);expect(g.score).toBe(0);
   });

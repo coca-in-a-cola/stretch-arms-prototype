@@ -97,7 +97,7 @@ describe('stamina and outcomes for free-aim strikes', () => {
   });
   test('thrown prop that whiffs is lost', () => {
     const g = new Game(); g.start(1); const prop = g.actors.find(t => t.kind === 'mug' || t.kind === 'whiskey')!;
-    expect(g.act('grab', prop.id)).toBe('grab'); g.spend('grab'); expect(g.resolve('grab', { kind: 'whiff' })).toBe('miss'); expect(g.held).toBeNull(); expect(g.stamina).toBe(70);
+    expect(g.act('grab', prop.id)).toBe('grab'); g.spend('grab'); expect(g.resolve('grab', { kind: 'whiff' })).toBe('miss'); expect(g.held).toBeNull(); expect(g.stamina).toBe(100 - 12 - 16);
   });
 });
 

@@ -1,11 +1,17 @@
 import type { HitKind, Vec3 } from './aim';
-import { LEVELS, LAST_LEVEL, onLanding, type Layer, type PropKind, type Skin } from './layout';
+import { LEVELS, LAST_LEVEL, WINDUP, onLanding, type Layer, type PropKind, type Skin } from './layout';
+import { PROPS, REACH_COST } from './props';
 
 export type Mode = 'menu' | 'select' | 'play' | 'pause' | 'result';
 export type Kind = 'enemy' | 'dog' | PropKind;
-export interface Actor { id: number; kind: Kind; x: number; y: number; z?: number; slot?: number; layer?: Layer; skin?: Skin; age: number; deadline: number; /** Ult soaking, 0..1 (1 = knocked out). */ wet?: number; }
+export interface Actor {
+  id: number; kind: Kind; x: number; y: number; z?: number; slot?: number; layer?: Layer; skin?: Skin; age: number; deadline: number;
+  /** Ult soaking, 0..1 (1 = knocked out). */ wet?: number;
+  /** Enemies: health left / at spawn, and game time of the last damage (drives the health bar). */
+  hp?: number; maxHp?: number; hurtAt?: number;
+}
 /** Things that just happened, drained by the renderer to play attack / knockout / sad-dog / ult animations. */
-export interface GameEvent { type: 'attack' | 'ko' | 'dog' | 'smash' | 'ult' | 'ultEnd' | 'hatBack'; id: number; combo: number; }
+export interface GameEvent { type: 'attack' | 'ko' | 'dog' | 'smash' | 'ult' | 'ultEnd' | 'hatBack' | 'hurt'; id: number; combo: number; /** Damage dealt ('hurt'). */ amount?: number; }
 export interface Progress { version: 2; unlocked: number; best: number; }
 export type Action = 'punch' | 'grab';
 export type Outcome = 'hit' | 'grab' | 'throw' | 'protected' | 'smash' | 'cover' | 'miss' | 'tired' | 'blocked' | 'ult';
@@ -37,7 +43,17 @@ export function resultActions(g: { won: boolean; level: number; progress: Progre
   if (g.won) return [{ id: 'menu', label: 'В МЕНЮ →', primary: true }, { id: 'retry', label: 'ЕЩЁ РАЗ ↺', primary: false }];
   return [{ id: 'retry', label: 'ЕЩЁ РАЗ ↗', primary: true }, { id: 'select', label: 'ВЫБОР УРОВНЯ', primary: false }];
 }
-export const costOf = (action: Action, holding: boolean) => action === 'punch' ? 24 : holding ? 18 : 12;
+/** Stamina for a swing: a punch, a reach for a prop, or a throw of the held prop (heavier costs more). */
+export const costOf = (action: Action, holding: boolean, held?: PropKind | null) => action === 'punch' ? 24 : holding ? (held ? PROPS[held].throw : 18) : REACH_COST;
+/** Enemy health: a punch knocks off about a third of a regular bully; heavy throws do more (prop table). */
+export const PUNCH_DAMAGE = 10;
+export const ENEMY_HP: Record<Skin, number> = { cat: 30, walrus: 30, bulldog: 40, weasel: 20 };
+/** Health bars show on damage, hold, then fade so a calm street stays uncluttered. */
+export const HEALTHBAR = { hold: 2.2, fade: .8 } as const;
+export function healthBarAlpha(t: Pick<Actor, 'hurtAt'>, now: number) {
+  if (t.hurtAt === undefined) return 0;
+  const s = now - t.hurtAt; return s < HEALTHBAR.hold ? 1 : Math.max(0, 1 - (s - HEALTHBAR.hold) / HEALTHBAR.fade);
+}
 
 export class Game {
   mode: Mode = 'menu'; level = 1; hp = 5; stamina = 100; score = 0; combo = 0; elapsed = 0; held: PropKind | null = null;
@@ -85,7 +101,8 @@ export class Game {
     if (this.actors.some(t => t.kind === 'enemy' && t.slot === slot)) return;
     if (maxAlive && this.actors.filter(t => t.kind === 'enemy').length >= maxAlive) return;
     const s = slots[slot];
-    this.actors.push({ id: this.nextId++, kind: 'enemy', x: s.x, y: s.y, z: s.z, slot, layer: s.layer, age: 0, deadline });
+    const hp = ENEMY_HP[s.skin ?? 'cat'];
+    this.actors.push({ id: this.nextId++, kind: 'enemy', x: s.x, y: s.y, z: s.z, slot, layer: s.layer, age: 0, deadline, hp, maxHp: hp });
     this.spawned++;
     if (!this.actors.some(t => t.kind === 'dog')) for (const dog of dogs) this.actors.push({ id: this.nextId++, kind: 'dog', ...dog, layer: 'midground', age: 0, deadline: Infinity });
     const [a, b] = this.layout.props ?? ['bottle', 'barrel'];
@@ -115,7 +132,7 @@ export class Game {
   spend(action: Action): boolean {
     if (this.mode !== 'play') return false;
     if (this.ultActive) { this.message = 'Не до кулаков — идёт ульта!'; return false; }
-    const cost = costOf(action, action === 'grab' && this.held !== null);
+    const cost = costOf(action, action === 'grab' && this.held !== null, this.held);
     if (this.stamina < cost) { this.message = 'Выдохни. Руки тоже устают.'; return false; }
     this.stamina -= cost; return true;
   }
@@ -138,14 +155,29 @@ export class Game {
     if (t.kind === 'hat' && !(action === 'grab' && !throwing)) { this.combo = 0; this.message = 'Шляпу не бьют. Шляпу берут.'; return 'miss'; }
     if (t.kind !== 'enemy') {
       this.actors = this.actors.filter(v => v.id !== t.id);
-      if (action === 'grab' && !throwing) { this.held = t.kind; this.message = t.kind === 'hat' ? 'Котелок! Ему явно где-то здесь место…' : 'В руке! Теперь бросай в задиру.'; return 'grab'; }
+      if (action === 'grab' && !throwing) {
+        this.held = t.kind; this.stamina = Math.max(0, this.stamina - Math.max(0, PROPS[t.kind].grab - REACH_COST)); // heavy lifting
+        this.message = t.kind === 'hat' ? 'Котелок! Ему явно где-то здесь место…' : PROPS[t.kind].mass >= 4 ? `Ух, ${PROPS[t.kind].name}! Тяжело, но больно.` : 'В руке! Теперь бросай в задиру.'; return 'grab';
+      }
       this.score += 25; this.events.push({ type: 'smash', id: t.id, combo: this.combo }); this.message = 'ДЗЫНЬ! Минус реквизит, плюс 25.'; return 'smash';
     }
-    if (action === 'punch' || throwing) {
-      this.actors = this.actors.filter(v => v.id !== t.id); this.combo++; this.score += (throwing ? 180 : 100) + Math.min(this.combo - 1, 9) * 25; this.defeated++; this.events.push({ type: 'ko', id: t.id, combo: this.combo }); this.message = throwing ? 'Точный бросок. Красиво!' : ['БАМ! Так держать.', 'Вот это размах!', 'Живой нокаут!'][this.combo % 3];
-      if (this.defeated >= this.goal) this.finish(true); return throwing ? 'throw' : 'hit';
-    }
+    if (action === 'punch' || throwing) { this.hurt(t, throwing && thrown ? PROPS[thrown].damage : PUNCH_DAMAGE, throwing); return throwing ? 'throw' : 'hit'; }
     this.combo = 0; this.message = 'Задиру — кулаком. Предмет — хватай!'; return 'miss';
+  }
+  /** Damage an enemy: a hurt flash + number while it has HP left (and a stagger), a knockout when it runs out. */
+  hurt(t: Actor, amount: number, throwing = false) {
+    t.hp = Math.max(0, (t.hp ?? 1) - amount); t.hurtAt = this.elapsed;
+    this.events.push({ type: 'hurt', id: t.id, combo: this.combo, amount });
+    if (t.hp > 0) {
+      this.score += 20; t.deadline = Math.max(t.deadline, t.age + WINDUP + 1.2); // staggered: the swing restarts
+      this.message = throwing ? `Прямое попадание! −${amount}` : ['БАМ! Ещё разок!', 'Шатается!', 'Добавь!'][Math.floor(t.hp / 10) % 3];
+      return false;
+    }
+    this.actors = this.actors.filter(v => v.id !== t.id); this.combo++; this.score += (throwing ? 180 : 100) + Math.min(this.combo - 1, 9) * 25; this.defeated++;
+    this.events.push({ type: 'ko', id: t.id, combo: this.combo });
+    this.message = throwing ? 'Точный бросок. Нокаут!' : ['Нокаут! Так держать.', 'Вот это размах!', 'Живой нокаут!'][this.combo % 3];
+    if (this.defeated >= this.goal) this.finish(true);
+    return true;
   }
   /** Convenience: spend + resolve against an actor id (undefined = whiff). */
   act(action: Action, id?: number, costPaid = false): Outcome {
