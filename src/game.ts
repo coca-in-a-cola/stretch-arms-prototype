@@ -237,8 +237,8 @@ export class Game {
       this.hazards = this.hazards.filter(v => v !== h);
       const flat = this.actors.filter(t => t.kind === 'enemy').filter(t => { const p = pose(this.level, t); return Math.hypot(p.x - h.x, p.z - h.z) <= HAZARD.radius; });
       this.events.push({ type: 'crash', id: h.id, combo: this.combo, hazard: h.kind, point: { x: h.x, y: 0, z: h.z }, ids: flat.map(t => t.id) });
-      this.message = flat.length ? (h.kind === 'piano' ? 'БДЫЩЬ! Рояль с неба — задира в лепёшку!' : 'БУМ! Сейф на голову — в лепёшку!') : 'Мимо! Но грохоту-то сколько.';
       for (const t of flat) { this.hurt(t, 999, false, 'pancake'); if (this.mode !== 'play') return; }
+      this.message = flat.length ? (h.kind === 'piano' ? 'БДЫЩЬ! Рояль с неба — задира в лепёшку!' : 'БУМ! Сейф на голову — в лепёшку!') : 'Мимо! Но грохоту-то сколько.';
     }
   }
   /** Start a falling piano or safe at a ground spot (also used by tests). */
@@ -398,8 +398,8 @@ export class Game {
   }
   /** Damage an enemy: a hurt flash + number while it has HP left (and a stagger), a knockout when it runs out. */
   hurt(t: Actor, amount: number, throwing = false, how?: KoHow) {
-    t.hp = Math.max(0, (t.hp ?? 1) - amount); t.hurtAt = this.elapsed;
-    this.events.push({ type: 'hurt', id: t.id, combo: this.combo, amount });
+    const lost = Math.min(amount, t.hp ?? 1); t.hp = Math.max(0, (t.hp ?? 1) - amount); t.hurtAt = this.elapsed;
+    this.events.push({ type: 'hurt', id: t.id, combo: this.combo, amount: lost }); // a falling piano shows −30, not −999
     if (t.hp > 0) {
       this.score += 20; t.deadline = Math.max(t.deadline, t.age + WINDUP + 1.2); // staggered: the swing restarts
       this.message = throwing ? `Прямое попадание! −${amount}` : ['БАМ! Ещё разок!', 'Шатается!', 'Добавь!'][Math.floor(t.hp / 10) % 3];

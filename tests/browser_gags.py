@@ -110,6 +110,142 @@ def thugs(page: Page):
     page.wait_for_timeout(400); freeze(page); shot(page, 'thug-splat'); thaw(page)
 
 
+def stage_enemies(page: Page, spots: list[tuple[float, float]], hp: int = 30) -> list[int]:
+    """Clear the bullies and friends and stand cat bullies in the open floor (no slot: always fully out, no ducking)."""
+    return page.evaluate('''([spots,hp])=>{__game.actors=__game.actors.filter(t=>t.kind!=="enemy"&&t.kind!=="friend"&&t.kind!=="dog");__game.spawned=__game.goal;
+      return spots.map(([x,z],i)=>{const id=500+i;__game.actors.push({id,kind:"enemy",x,y:0,z,age:4.2,deadline:60,hp,maxHp:hp});return id})}''', [spots, hp])
+
+
+def throw_at(page: Page, kind: str, x: float, y: float) -> None:
+    page.evaluate('(k)=>{__game.stamina=100;__game.held=k}', kind)
+    n = page.evaluate('__test.strikes().length')
+    page.mouse.move(x, y)
+    page.mouse.click(x, y, button='right')
+    page.wait_for_function('(n)=>__test.strikes().length>n', arg=n, timeout=15000)
+
+
+def throw_at_actor(page: Page, kind: str, actor_id: int) -> None:
+    at = page.wait_for_function('(id)=>__test.project(id)', arg=actor_id, timeout=8000).json_value()
+    throw_at(page, kind, at['x'], at['y'] - 10)
+
+
+def ground_point(page: Page, x: float, z: float) -> tuple[float, float]:
+    at = page.evaluate('([x,z])=>__test.toScreen({x,y:0,z})', [x, z])
+    return at['x'], at['y']
+
+
+@scene
+def anvil_pancake(page: Page):
+    start(page, 1)
+    [foe] = stage_enemies(page, [(-.3, .8)])
+    settle(page, 200)
+    throw_at_actor(page, 'anvil', foe)
+    page.wait_for_function('(id)=>!__game.actors.some(t=>t.id===id)', arg=foe, timeout=20000)
+    page.wait_for_timeout(250); freeze(page); shot(page, 'anvil-pancake'); thaw(page)
+    page.wait_for_timeout(1400); freeze(page); shot(page, 'anvil-pancake-peel'); thaw(page)
+
+
+@scene
+def pie_blind(page: Page):
+    start(page, 1)
+    [foe] = stage_enemies(page, [(-.3, .8)], 60)
+    settle(page, 200)
+    throw_at_actor(page, 'pie', foe)
+    page.wait_for_function('(id)=>__game.actors.find(t=>t.id===id)?.blind>0', arg=foe, timeout=20000)
+    page.wait_for_timeout(3000); freeze(page); shot(page, 'pie-blind'); thaw(page)
+
+
+@scene
+def gag_props(page: Page):
+    start(page, 1)
+    [a, b] = stage_enemies(page, [(-.75, .9), (.35, .4)], 80)
+    settle(page, 200)
+    throw_at_actor(page, 'plunger', b)
+    page.wait_for_function('(id)=>__game.actors.find(t=>t.id===id)?.plunger', arg=b, timeout=20000)
+    page.wait_for_timeout(300); freeze(page); shot(page, 'gag-plunger'); thaw(page)
+    throw_at_actor(page, 'chicken', a)
+    page.wait_for_function('__test.flights().length===0', timeout=20000)
+    page.wait_for_timeout(60); freeze(page); shot(page, 'gag-chicken'); thaw(page)
+    throw_at_actor(page, 'melon', a)
+    page.wait_for_function('__test.flights().length===0', timeout=20000)
+    page.wait_for_timeout(120); freeze(page); shot(page, 'gag-melon-seeds'); thaw(page)
+    x, y = ground_point(page, -.2, 1.9)
+    throw_at(page, 'hydrant', x, y)
+    page.wait_for_function('__game.geysers.length>0', timeout=20000)
+    page.wait_for_timeout(1600); freeze(page); shot(page, 'gag-hydrant-geyser'); thaw(page)
+
+
+@scene
+def gag_bowling(page: Page):
+    start(page, 1)
+    stage_enemies(page, [(-.2, 1.2), (-.2, -.6)], 30)
+    settle(page, 200)
+    x, y = ground_point(page, -.2, 3.3)
+    throw_at(page, 'bowling', x, y)
+    page.wait_for_function('!__game.actors.some(t=>t.id===500)', timeout=20000)
+    page.wait_for_timeout(250); freeze(page); shot(page, 'gag-bowling-strike'); thaw(page)
+
+
+@scene
+def gag_antics(page: Page):
+    start(page, 1)
+    # spawn index n: n % 3 == 2 clowns, kind = floor(n / 3) % 3, slot = order[n % 5] (0 = the walrus by the piano, big on screen)
+    for n, name in [(20, 'dance'), (5, 'sandwich'), (35, 'selfie')]:
+        page.evaluate('(n)=>{__game.layout.goal=99;__game.actors=__game.actors.filter(t=>t.kind!=="enemy");__game.spawned=n;__game.spawn();const e=__game.actors.find(t=>t.kind==="enemy");e.age=1.2}', n)
+        settle(page, 600); freeze(page); shot(page, f'gag-antic-{name}'); thaw(page)
+
+
+@scene
+def gag_ko_styles(page: Page):
+    start(page, 1)
+    for defeated, name in [(0, 'stars'), (1, 'birds')]:
+        [foe] = stage_enemies(page, [(-.3, .8)], 10)
+        page.evaluate('(d)=>{__game.defeated=d;__game.stamina=100}', defeated)
+        settle(page, 150)
+        punch_actor(page, f't=>t.id==={foe}')
+        page.wait_for_function('(id)=>!__test.views().some(v=>v.id===id)', arg=foe, timeout=20000)
+        page.wait_for_timeout(2200 if name == 'birds' else 1600); freeze(page); shot(page, f'gag-ko-{name}'); thaw(page)
+
+
+@scene
+def gag_piano(page: Page):
+    start(page, 1)
+    stage_enemies(page, [(-.3, .6)])
+    settle(page, 150)
+    page.evaluate('__game.dropFromSky(-.3,.6)')
+    page.wait_for_function('__game.hazards[0]?.age>1.35', timeout=20000)
+    freeze(page); shot(page, 'gag-piano-shadow'); thaw(page)
+    page.wait_for_function('__game.hazards.length===0', timeout=20000)
+    page.wait_for_timeout(200); freeze(page); shot(page, 'gag-piano-crash'); thaw(page)
+
+
+@scene
+def gag_dog_ascends(page: Page):
+    start(page, 1)
+    page.evaluate('()=>{const d=__game.actors.find(t=>t.kind==="dog");d.age=15+2}')
+    settle(page, 400); freeze(page); shot(page, 'gag-dog-ascends'); thaw(page)
+
+
+@scene
+def gag_milestone(page: Page):
+    start(page, 1)
+    [foe] = stage_enemies(page, [(-.3, .8)], 10)
+    page.evaluate('__game.combo=2;__game.stamina=100')
+    settle(page, 150)
+    punch_actor(page, f't=>t.id==={foe}')
+    page.wait_for_function('document.querySelector("#scene").dataset.milestone', timeout=15000)
+    page.wait_for_timeout(250); freeze(page); shot(page, 'gag-milestone-iris'); thaw(page)
+
+
+@scene
+def regression(page: Page):
+    start(page, 1)
+    settle(page, 1200); shot(page, 'bar')
+    start(page, 2)
+    settle(page, 1200); shot(page, 'street')
+    page.evaluate('__test.setPan(8)'); settle(page, 600); shot(page, 'street-alley')
+
+
 def main(names: list[str]) -> None:
     OUT.mkdir(parents=True, exist_ok=True)
     port = free_port()
