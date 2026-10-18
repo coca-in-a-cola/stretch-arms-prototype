@@ -1,10 +1,10 @@
 {
-  "url": "http://127.0.0.1:41537/",
+  "url": "http://127.0.0.1:43929/",
   "mutableHooks": false,
   "consoleErrors": [],
   "flows": [
-    "desktop natural 9-hit win (retry when an enemy ducks), hit-moment capture, unlock and persistence",
-    "touch natural 9-hit win (>=4 hearts) and level2 hit",
+    "desktop natural 12-KO bar win (retry when an enemy ducks), hit-moment capture, unlock and persistence",
+    "touch natural 12-KO bar win and level2 hit",
     "level2 natural five-deadline loss and full-HP retry",
     "pause freezes public state",
     "real CDP background freeze auto-pauses; public state stays frozen on return",

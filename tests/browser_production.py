@@ -55,9 +55,11 @@ def strike_until_progress(page: Page, index: int, touch: bool, hit_shot: str | N
     so a swing can honestly land on the barrel instead — then we simply swing again, like a player would."""
     for attempt in range(40):  # bullies take several punches (health bars); ducks / friends in the way cost retries
         try:
-            page.wait_for_function('Number(document.querySelector("#stamina").textContent)>=30', timeout=60000)
+            page.wait_for_function('document.querySelector("#app").dataset.mode==="result"||Number(document.querySelector("#stamina").textContent)>=30', timeout=60000)
         except Exception:
             raise AssertionError('stalled: ' + page.evaluate('document.querySelector("#app").dataset.mode + " | " + document.querySelector("#ui").innerText.slice(0,300)'))
+        if page.locator('#app').get_attribute('data-mode') == 'result':
+            return  # the level ended meanwhile (the last bully fell to a piano, a geyser or a missed swing count)
         x, y = clickable_enemy(page)
         if touch:
             page.touchscreen.tap(x, y)
@@ -77,15 +79,27 @@ def strike_until_progress(page: Page, index: int, touch: bool, hit_shot: str | N
 
 
 def win_level1(page: Page, width: int, height: int, touch: bool = False) -> None:
-    for index in range(12):  # the bar's goal: 12 patrons
-        if index == 0:
-            page.wait_for_timeout(700)
-            capture(page, 'portrait' if touch else 'level1')
-        strike_until_progress(page, index, touch, None if touch or index != 1 else 'hit-moment')
-    page.locator('#app[data-mode=result]').wait_for()
+    """Natural play until the bar is won; a lost attempt is retried from the result screen, like a player would."""
+    for attempt in range(3):
+        play_level1(page, touch, attempt == 0)
+        if 'КРАСИВО' in page.locator('h2').inner_text():
+            break
+        print('bar attempt', attempt + 1, 'lost:', page.locator('#hearts').inner_text(), '— retrying')
+        (page.locator('#retry').tap() if touch else page.locator('#retry').click())
     assert 'КРАСИВО' in page.locator('h2').inner_text()
     hearts = page.locator('#hearts').inner_text()
     assert hearts.count('♥') >= 1, hearts
+
+
+def play_level1(page: Page, touch: bool, first: bool) -> None:
+    for index in range(12):  # the bar's goal: 12 patrons
+        if page.locator('#app').get_attribute('data-mode') == 'result':
+            break  # a falling piano / geyser knocked some out for us: KOs that count too
+        if index == 0 and first:
+            page.wait_for_timeout(700)
+            capture(page, 'portrait' if touch else 'level1')
+        strike_until_progress(page, index, touch, None if touch or index != 1 or not first else 'hit-moment')
+    page.locator('#app[data-mode=result]').wait_for(timeout=120000)
 
 
 def check_buttons(page: Page) -> None:
@@ -228,7 +242,7 @@ def main() -> None:
             assert 'НЕ ТОТ' in page.locator('h2').inner_text()
             assert page.locator('#hearts').inner_text() == '♡♡♡♡♡'
             capture(page, 'loss')
-            page.locator('#resume').click()
+            page.locator('#retry').click()
             assert page.locator('#hearts').inner_text() == '♥♥♥♥♥'
             assert '/ 0 ИЗ 22' in page.locator('#progress').inner_text()
             page.reload()
