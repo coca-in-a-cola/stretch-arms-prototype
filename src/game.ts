@@ -4,6 +4,7 @@ import { PROPS, REACH_COST } from './props';
 import { launch, step, type Flight, type Impact } from './throw';
 import type { Hittable } from './aim';
 import { BET, BET_CARDS } from './ult';
+import { Briefing, HERALD, flyersFor } from './herald';
 import { FRIEND_LINES, FRIEND_MAD, FRIEND_PENALTY, THUG, THUG_NUISANCE, THUG_STEAL, type FriendKind, type ThugKind } from './friends';
 
 export type Mode = 'menu' | 'select' | 'play' | 'pause' | 'result';
@@ -35,10 +36,10 @@ const koStyle = (n: number): KoHow => (['spin', 'stars', 'birds'] as const)[n % 
 /** Things that just happened, drained by the renderer to play attack / knockout / sad-dog / ult animations. */
 export interface GameEvent {
   type: 'attack' | 'ko' | 'dog' | 'smash' | 'ult' | 'ultEnd' | 'hatBack' | 'hurt' | 'land' | 'shatter' | 'thud' | 'gag' | 'offend' | 'nuisance'
-    | 'blind' | 'squeak' | 'seeds' | 'geyser' | 'knock' | 'stick' | 'strike' | 'hazard' | 'crash' | 'milestone';
+    | 'blind' | 'squeak' | 'seeds' | 'geyser' | 'knock' | 'stick' | 'strike' | 'hazard' | 'crash' | 'milestone' | 'tear';
   /** 'ko': how the bully leaves (spinning, as stars, as birds, flattened). 'seeds': who the melon seeds struck. 'hazard'/'crash': piano or safe. */
   how?: KoHow; ids?: number[]; hazard?: 'piano' | 'safe';
-  /** 'offend' / 'nuisance' / thug 'ko': which friend or thug; 'offend' also carries the line it shouts. */ who?: FriendKind | ThugKind; text?: string;
+  /** 'offend' / 'nuisance' / thug 'ko': which friend, thug or the herald; 'offend' also carries the line it shouts. */ who?: FriendKind | ThugKind | 'herald'; text?: string;
   /** 'gag': which joke fired, the gag's id (its box / cover) and, for the laundry, the bully it landed on (id). */ gag?: GagKind; gagId?: string;
   id: number; combo: number; /** Damage dealt ('hurt'). */ amount?: number;
   /** World point of a landing / shatter / thrown-prop impact, and the prop kind. */ point?: Vec3; prop?: PropKind;
@@ -103,6 +104,11 @@ export class Game {
   /** Hydrant geysers spouting where a hydrant landed, and pianos / safes on their way down. */
   geysers: { id: number; x: number; z: number; age: number; hit: number[] }[] = [];
   hazards: { id: number; kind: 'piano' | 'safe'; x: number; z: number; age: number }[] = []; hazardClock = 0; hazardCount = 0;
+  /**
+   * Level-start briefing by the herald (see herald.ts). Off by default so rule tests start straight in the fight; the
+   * game turns it on. Shown once per level per session (`briefed`), so an immediate retry goes straight to the fight.
+   */
+  briefings = false; briefing: Briefing | null = null; briefed = new Set<number>(); touch = false; reduced = false;
   constructor(progress = freshProgress(), private save: (p: Progress) => void = () => {}) { this.progress = progress; }
   get layout() { return LEVELS[this.level]; }
   get goal() { return this.layout.goal; }
@@ -112,7 +118,29 @@ export class Game {
     this.ult = { phase: 'none', t: 0, meter: 0, hat: 0 }; this.dogSoak = 0; this.dogLeft = false; this.hatRest = null;
     for (const p of this.layout.props) this.actors.push({ id: this.nextId++, kind: p.kind, x: p.x, y: p.y, z: p.z, layer: layerAt(p.z), age: 0, deadline: Infinity });
     this.layout.friends.forEach((f, plan) => this.actors.push({ id: this.nextId++, kind: 'friend', who: f.who, plan, x: f.x0, y: f.y, z: f.z, layer: layerAt(f.z), age: 0, deadline: Infinity }));
-    this.spawn(); this.placeHat(); return true;
+    this.briefing = null;
+    if (this.briefings && !this.briefed.has(level)) { this.briefed.add(level); this.briefing = new Briefing(level, flyersFor(level, this.touch), this.reduced); this.message = 'Глашатай! Читай листовки — или жми ПОНЯЛ.'; }
+    else this.spawn();
+    this.placeHat(); return true;
+  }
+  /** The herald tipped his hat and left: the first bully steps out. */
+  private endBriefing() { this.briefing = null; this.message = this.layout.look === 'bar' ? 'Бар «Длинные руки». Ведите себя прилично.' : 'Улица большая — крути камеру к краям!'; this.spawn(); }
+  /** 'ПОНЯЛ' / Esc during the briefing. */
+  skipBriefing() { if (!this.briefing) return; this.briefing.skip(); if (this.briefing.done) this.endBriefing(); }
+  /**
+   * A fist landed during the briefing: on the flyer (it tears, next one), on the herald (penalty like any friend; he is
+   * offended for a moment and goes on) or past both. Returns null when no briefing is running.
+   */
+  briefPunch(what: 'flyer' | 'herald' | 'none'): 'tear' | 'protected' | 'miss' | null {
+    const b = this.briefing; if (!b || this.mode !== 'play') return null;
+    if (what === 'flyer' && b.tear()) { this.events.push({ type: 'tear', id: 0, combo: this.combo, amount: b.index }); this.message = 'ТРЕСЬ! Следующая листовка.'; if (b.done) this.endBriefing(); return 'tear'; }
+    if (what === 'herald') {
+      if (!b.offend()) { this.message = 'Он и так обижен! Оставь в покое.'; return 'miss'; }
+      this.score = Math.max(0, this.score - HERALD.penalty); this.hp = Math.max(0, this.hp - 1); this.combo = 0;
+      this.events.push({ type: 'offend', id: 0, combo: 0, who: 'herald', text: b.line }); this.message = `${b.line} −${HERALD.penalty} и сердце.`;
+      if (!this.hp) this.finish(false); return 'protected';
+    }
+    this.message = 'Бей по листовке — будет следующая.'; return 'miss';
   }
   get ultActive() { return this.ult.phase === 'intro' || this.ult.phase === 'pour'; }
   /** The bowler sits on its stool until it is grabbed or the ult has been spent. */
@@ -182,6 +210,7 @@ export class Game {
   }
   tick(dt: number) {
     if (this.mode !== 'play') return;
+    if (this.briefing) { this.briefing.tick(dt); if (this.briefing.done) this.endBriefing(); return; } // nobody moves while he talks
     if (this.ult.phase === 'intro') { this.ult.t += dt; if (this.ult.t >= ULT.intro) { this.ult = { phase: 'pour', t: 0, meter: 1, hat: 0 }; this.message = 'Держи струю в шляпе! Задир можно и окатить. Пса не задень.'; } return; } // everyone freezes
     const pouring = this.ult.phase === 'pour';
     if (pouring) {
@@ -308,6 +337,7 @@ export class Game {
   /** Pays for a swing up front. Every launched swing costs stamina, whatever it ends up hitting. */
   spend(action: Action): boolean {
     if (this.mode !== 'play') return false;
+    if (this.briefing) return true; // punching flyers is free
     if (this.ultActive) { this.message = 'Не до кулаков — идёт ульта!'; return false; }
     const cost = costOf(action, action === 'grab' && this.held !== null, this.held);
     if (this.stamina < cost) { this.message = 'Выдохни. Руки тоже устают.'; return false; }
@@ -315,7 +345,7 @@ export class Game {
   }
   /** Applies the result of an already-paid swing at whatever the free-aim ray struck first. */
   resolve(action: Action, hit: StrikeHit): Outcome {
-    if (this.mode !== 'play') return 'blocked';
+    if (this.mode !== 'play' || this.briefing) return 'blocked';
     const throwing = action === 'grab' && this.held !== null, thrown = this.held;
     if (throwing) this.held = null;
     if (thrown === 'hat') {
@@ -443,7 +473,7 @@ export class Game {
   get pouring() { return this.ult.phase === 'pour';
   }
   finish(won: boolean) {
-    this.won = won; this.mode = 'result'; this.held = null;
+    this.won = won; this.mode = 'result'; this.held = null; this.briefing = null;
     if (won) { this.progress.unlocked = Math.min(LAST_LEVEL, Math.max(this.progress.unlocked, this.level + 1)); this.score += this.hp * 100; }
     if (this.ultActive) this.ult = { ...this.ult, phase: 'done', t: 0, meter: 0 };
     this.progress.best = Math.max(this.progress.best, this.score); this.save({ ...this.progress });
