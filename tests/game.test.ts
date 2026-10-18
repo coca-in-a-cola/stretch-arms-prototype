@@ -43,11 +43,21 @@ describe('deterministic arcade rules', () => {
     const prop = g.actors.find(t => t.kind === 'mug' || t.kind === 'whiskey')!;
     g.stamina = 100; expect(g.act('grab', prop.id)).toBe('grab'); expect(g.held).toBe(prop.kind); expect(g.stamina).toBe(100 - REACH_COST);
     g.stamina = 100; expect(g.act('grab', enemy.id)).toBe('throw'); expect(g.stamina).toBe(100 - PROPS[prop.kind as 'mug'].throw);
-    expect(enemy.hp).toBe(30 - PUNCH_DAMAGE - PROPS[prop.kind as 'mug'].damage); expect(PROPS.mug.damage).toBeGreaterThan(PUNCH_DAMAGE);
-    expect(g.defeated).toBe(0);
-    g.stamina = 100; g.act('punch', enemy.id); expect(g.actors).not.toContain(enemy); expect(g.defeated).toBe(1); expect(g.events.some(e => e.type === 'ko' && e.id === enemy.id)).toBe(true);
+    expect(enemy.hp).toBe(0); expect(g.actors).not.toContain(enemy); expect(g.defeated).toBe(1);
+    expect(g.events.some(e => e.type === 'ko' && e.id === enemy.id)).toBe(true);
     // Heavier props hit harder and cost more to lift and throw.
     expect(PROPS.anvil.damage).toBeGreaterThan(PROPS.bottle.damage); expect(PROPS.anvil.throw).toBeGreaterThan(PROPS.bottle.throw); expect(PROPS.anvil.grab).toBeGreaterThan(REACH_COST);
+  });
+  test('throw one-shots a full-HP enemy', () => {
+    const g = new Game(); g.start(1);
+    const enemy = g.actors.find(t => t.kind === 'enemy')!;
+    expect(enemy.hp).toBe(enemy.maxHp!);
+    const prop = g.actors.find(t => t.kind === 'mug' || t.kind === 'whiskey')!;
+    expect(g.act('grab', prop.id)).toBe('grab');
+    expect(g.act('grab', enemy.id)).toBe('throw');
+    expect(enemy.hp).toBe(0);
+    expect(g.actors).not.toContain(enemy);
+    expect(g.events.some(e => e.type === 'ko' && e.id === enemy.id)).toBe(true);
   });
   test('a non-lethal hit staggers the enemy: its swing restarts', () => {
     const g = new Game(); g.start(1); const enemy = g.actors.find(t => t.kind === 'enemy')!; enemy.age = enemy.deadline - .2; // mid wind-up

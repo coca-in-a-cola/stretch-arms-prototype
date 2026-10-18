@@ -259,7 +259,8 @@ export class Game {
     if (!spec.damage) { this.combo = 0; this.message = 'Шляпу — не в задиру!'; return; }
     if (f.kind === 'anvil') { this.hurt(t, Math.max(spec.damage, t.hp ?? 0), true, 'pancake'); this.message = 'НАКОВАЛЬНЯ! Задира — блин.'; return; }
     if (f.kind === 'chicken') { this.bump(GAGS.chicken.combo); this.score += GAGS.chicken.bonus; this.events.push({ type: 'squeak', id: t.id, combo: this.combo, point }); }
-    const ko = this.hurt(t, spec.damage * (t.antic ? ANTIC.bonus : 1), true);
+    const isGag = f.kind === 'chicken' || f.kind === 'pie' || f.kind === 'plunger';
+    const ko = this.hurt(t, isGag ? spec.damage * (t.antic ? ANTIC.bonus : 1) : Math.max(spec.damage, t.hp ?? 0), true);
     if (f.kind === 'bowling' && f.hits?.length === 2) { this.events.push({ type: 'strike', id: t.id, combo: this.combo, point }); this.message = 'СТРАЙК! Двоих одним шаром!'; }
     if (ko) return;
     if (f.kind === 'pie') { t.blind = GAGS.pie.blind; this.events.push({ type: 'blind', id: t.id, combo: this.combo, point }); this.message = 'Пирог в лицо! Ничего не видит, шатается.'; }
@@ -334,7 +335,9 @@ export class Game {
     }
     if (action === 'punch' || throwing) {
       const caught = t.antic ? ANTIC.bonus : 1; // caught clowning around: double damage
-      if (!this.hurt(t, (throwing && thrown ? PROPS[thrown].damage : PUNCH_DAMAGE) * caught, throwing) && caught > 1) this.message = 'ПОДЛОВИЛ! Урон ×2.';
+      const isGag = thrown === 'chicken' || thrown === 'pie' || thrown === 'plunger';
+      const dmg = throwing && thrown ? (isGag ? PROPS[thrown].damage * caught : Math.max(PROPS[thrown].damage, t.hp ?? 0)) : PUNCH_DAMAGE * caught;
+      if (!this.hurt(t, dmg, throwing) && caught > 1) this.message = 'ПОДЛОВИЛ! Урон ×2.';
       return throwing ? 'throw' : 'hit';
     }
     this.combo = 0; this.message = 'Задиру — кулаком. Предмет — хватай!'; return 'miss';

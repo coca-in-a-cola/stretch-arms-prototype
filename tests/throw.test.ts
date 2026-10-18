@@ -43,7 +43,8 @@ describe('throws: the prop is an independent projectile', () => {
     grab(g, 'whiskey'); g.spend('grab'); g.launch(hand(), aim);
     const impacts = settle(g);
     expect(impacts.some(i => i.impact.type === 'hit' && i.impact.id === enemy.id)).toBe(true);
-    expect(enemy.hp).toBe(enemy.maxHp! - PROPS.whiskey.damage);
+    expect(enemy.hp).toBe(0);
+    expect(g.events.some(e => e.type === 'ko' && e.id === enemy.id)).toBe(true);
     expect(g.events.some(e => e.type === 'shatter')).toBe(true); // glass breaks on impact
   });
   test('an enemy that ducks while the prop is in the air is missed; the (unbreakable) prop lands and stays — no respawn', () => {
