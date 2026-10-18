@@ -2,6 +2,18 @@
 // It rises from below the bottom edge, arcs like a thrown hose jet and chases the aim point with lag.
 export interface Pt { x: number; y: number; }
 
+/**
+ * The bet before the pour, as old-cartoon dialogue intertitles (a bar-room anecdote, told straight).
+ * `at` / `len` are seconds of the frozen ult intro; the pour starts when the last card ends (ULT.intro).
+ */
+export const BET_CARDS = [
+  { who: 'ТЫ — БАРМЕНУ', text: '«Спорим, бармен, на триста баксов, что я нассу вон в ту шляпу и не пролью ни капли?»', at: .5, len: 3.1 },
+  { who: 'БАРМЕН-ЛАСКА', text: '«Идёт. Ставлю триста.»', at: 3.6, len: 1.7 },
+] as const;
+/** The bet is won when at least this share of the pour went into the hat. */
+export const BET = { share: .6, prize: 300, perSecond: 40 } as const;
+export const cardAt = (t: number) => BET_CARDS.find(c => t >= c.at && t < c.at + c.len) ?? null;
+
 /** Origin sits below the bottom edge (nothing anatomical is ever on screen); `lag` is the follow rate per second. */
 export const STREAM = { origin: { x: .5, y: 1.12 } as Pt, lag: 6.5, arc: .2, segments: 26 } as const;
 

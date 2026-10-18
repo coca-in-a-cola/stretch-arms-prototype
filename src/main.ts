@@ -5,7 +5,7 @@ import { LEVELS, BODY, SKIN_INSET, WINDUP, YARD_X, ALLEY_X, LAST_LEVEL, clampPan
 import './style.css';
 import { makeStreet } from './street';
 import { makeBar } from './bar';
-import { Stream } from './ult';
+import { Stream, cardAt } from './ult';
 import { PROPS, PROP_KINDS } from './props';
 import { LOOKS, greyscaleWorld, greyCanvas, greyColor } from './palette';
 import { armMetrics, restPose, punchPose, sideFor, drawArm as inkArm, type Avoid, type Pt } from './arm';
@@ -264,8 +264,17 @@ const sign = new THREE.Mesh(new THREE.PlaneGeometry(1.6, 1.25), new THREE.MeshBa
 sign.position.set(-6.3 + YARD_X, 2.5, -8.8); levelGroups[2].add(sign);
 // The violet hat mat on the counter top (colour = you can do something here) and the trophy hat once it lands.
 const landingCover = LEVELS[1].covers.find(c => c.id === LEVELS[1].landing?.cover)!;
+// Once it lands the bowler sits UPSIDE DOWN on the counter — crown down, opening up — a receptacle for the bet.
+// The plane is flipped vertically and lifted by the drawn hat's height so the crown rests on the slab.
+const HAT_SCALE = 1.35, HAT_TALL = BODY.hat.h * BODY.hat.inset[3] * HAT_SCALE; // a touch oversized so it reads at counter depth
 const hatTrophy = new THREE.Mesh(new THREE.PlaneGeometry(BODY.hat.w, BODY.hat.h).translate(0, BODY.hat.h / 2, 0), new THREE.MeshBasicMaterial({ map: textures.hat, alphaTest: .5, side: THREE.DoubleSide }));
-hatTrophy.visible = false; hatTrophy.renderOrder = 2;
+hatTrophy.visible = false; hatTrophy.renderOrder = 2; hatTrophy.scale.set(HAT_SCALE, -HAT_SCALE, 1);
+/** Screen centre and half-width of the upturned hat's opening (null when not on the counter). */
+function hatMouth() {
+  if (!hatTrophy.visible) return null;
+  const p = hatTrophy.position, c = toScreen({ x: p.x, y: p.y - .04, z: p.z }), e = toScreen({ x: p.x + BODY.hat.w * HAT_SCALE * .36, y: p.y - .04, z: p.z });
+  return { x: c.x, y: c.y, r: Math.abs(e.x - c.x) };
+}
 // The world is B/W film; only characters, grabbable props, the player's arms and FX keep colour.
 for (const t of signs) greyCanvas(t.image as HTMLCanvasElement);
 for (const level of LEVEL_IDS) greyscaleWorld(levelGroups[level]);
@@ -546,7 +555,7 @@ function drainEvents(at?: { x: number; y: number }) {
     if (e.type === 'ult') startUlt();
     if (e.type === 'land' && e.point) sound('thud');
     if (e.type === 'shatter' && e.point && e.prop) { shatter(e.point, PROPS[e.prop].shards ?? ['#ffffff']); pop('smash', e.point, .8); }
-    if (e.type === 'ultEnd') { sound('slide'); callout('ФЬЮ-У-У…', innerWidth / 2, innerHeight * .6, 'pop'); }
+    if (e.type === 'ultEnd') { sound('slide'); callout(e.amount ? `НИ КАПЛИ МИМО! +${e.amount}` : 'ПРОЛИЛ… ПЛАТИ ТРИСТА', innerWidth / 2, innerHeight * .6, e.amount ? 'combo' : 'bad'); }
   }
   game.events.length = 0;
 }
@@ -612,7 +621,6 @@ function land(s: Swing) {
   s.shot = resolveShot(s.ray.origin, s.ray.direction, currentHittables());
   const id = typeof s.shot.id === 'number' ? s.shot.id : undefined;
   const res = game.resolve(s.action, { kind: s.shot.kind, id: s.shot.id, point: s.shot.point });
-  if (res === 'ult') { hatTrophy.position.set(s.shot.point.x, landingCover.max.y, Math.min(s.shot.point.z, landingCover.max.z - .1)); hatTrophy.visible = true; }
   s.outcome = res;
   strikes.push({ action: s.action, outcome: res, kind: s.shot.kind, id: s.shot.id ?? null, staminaBefore: s.staminaBefore, staminaAfter: s.staminaAfter }); if (strikes.length > 20) strikes.shift();
   if (res === 'hit' || res === 'throw') sound(res);
@@ -821,31 +829,39 @@ function measureControls() {
 // SECRET ULT (bar only): hat on the counter → DING, freeze, intertitle, then a glossy yellow stream for 6 s.
 // The jet rises from below the bottom edge (nothing else is ever shown), arcs and chases the aim with lag.
 // -------------------------------------------------------------------------------------------------
-let stream: Stream | null = null;
+let stream: Stream | null = null, hatFill = 0;
 const drops: { x: number; y: number; vx: number; vy: number; life: number }[] = [];
 /** Puddles in viewport fractions; r in px. */
 const puddles: { x: number; y: number; r: number; max: number }[] = [];
 function startUlt() {
-  stream = new Stream(); drops.length = 0;
+  const r = game.hatRest;
+  if (r) { hatTrophy.position.set(r.x, landingCover.max.y + HAT_TALL, Math.min(r.z, landingCover.max.z - .1)); hatTrophy.visible = true; }
+  stream = null; drops.length = 0;
   const flash = document.createElement('div'); flash.className = 'ultflash'; ui.append(flash); setTimeout(() => flash.remove(), 800);
   if (motion()) shake = .25;
 }
 function landingPoint() {
   const c = landingCover;
-  for (const fx of [.55, .42, .68, .3, .8]) for (const dy of [.06, .2]) {
-    const sp = toScreen({ x: c.min.x + (c.max.x - c.min.x) * fx, y: c.max.y - dy, z: c.max.z });
+  // The hat flies on an arc and must come down ON the slab: aim at the counter's top face, not its front.
+  for (const fx of [.55, .42, .68, .3, .8]) for (const fz of [.5, .3, .7]) {
+    const sp = toScreen({ x: c.min.x + (c.max.x - c.min.x) * fx, y: c.max.y, z: c.min.z + (c.max.z - c.min.z) * fz });
     const shot = shotAt(new THREE.Vector2(sp.x / innerWidth * 2 - 1, 1 - sp.y / innerHeight * 2));
-    if (shot.kind === 'cover' && onLanding(game.level, shot.id, shot.point)) return { x: Math.round(sp.x), y: Math.round(sp.y) };
+    if (shot.kind === 'cover' && shot.point.y >= c.max.y - 1e-3 && onLanding(game.level, shot.id, shot.point)) return { x: Math.round(sp.x), y: Math.round(sp.y) };
   }
   return null;
 }
 function updateUlt(dt: number) {
   trickle(game.pouring && game.mode === 'play');
-  if (game.ult.phase === 'none' && (puddles.length || hatTrophy.visible)) { puddles.length = 0; drops.length = 0; hatTrophy.visible = false; stream = null; }
-  // Intertitle card: shown after the frozen beat, until the pour starts. Driven by game time (pause-safe).
-  const card = document.getElementById('ulttitle'), showCard = game.ult.phase === 'intro' && game.ult.t >= ULT.freeze;
-  if (showCard && !card) ui.insertAdjacentHTML('beforeend', '<div id="ulttitle" class="intertitle" role="status"><div><small>❦ БАР «ДЛИННЫЕ РУКИ» ПРЕДСТАВЛЯЕТ ❦</small><b>СЕКРЕТНАЯ<br>УЛЬТА</b><small>шляпа на месте · дамы, отвернитесь</small></div></div>');
-  if (!showCard && card) card.remove();
+  if (game.ult.phase === 'none' && (puddles.length || hatTrophy.visible)) { puddles.length = 0; drops.length = 0; hatTrophy.visible = false; stream = null; hatFill = 0; }
+  // Dialogue intertitles (the bet), one card at a time after the frozen beat. Driven by game time (pause-safe).
+  const card = document.getElementById('ulttitle'), now = game.ult.phase === 'intro' ? cardAt(game.ult.t) : null;
+  if (card && card.dataset.who !== now?.who) card.remove();
+  if (now && !document.getElementById('ulttitle')) ui.insertAdjacentHTML('beforeend', `<div id="ulttitle" class="intertitle dialog" role="status" data-who="${now.who}"><div><small>❦ ${now.who} ❦</small><b>${now.text}</b></div></div>`);
+  // The pour starts right where the bet is: the jet (and the aim) begin in the hat.
+  if (game.ult.phase === 'pour' && !stream) {
+    const m = hatMouth(), at = m ? { x: m.x / innerWidth, y: m.y / innerHeight } : { x: .5, y: .6 };
+    stream = new Stream(at); pointer.set(at.x * 2 - 1, 1 - at.y * 2); updateCrosshair();
+  }
   for (let i = drops.length - 1; i >= 0; i--) { const d = drops[i]; d.life -= dt; d.vy += 2.4 * dt; d.x += d.vx * dt; d.y += d.vy * dt; if (d.life <= 0) drops.splice(i, 1); }
   if (!stream || !game.pouring || game.mode !== 'play') return;
   const tip = stream.update(dt, { x: (pointer.x + 1) / 2, y: (1 - pointer.y) / 2 });
@@ -857,6 +873,9 @@ function updateUlt(dt: number) {
     if (ox === 0 && (shot.kind === 'whiff' || shot.point.y < .2)) floor = shot.point;
   }
   for (const [id, kind] of ids) if (kind === 'enemy' || kind === 'dog') game.soak({ kind: kind as 'enemy' | 'dog', id }, dt);
+  const mouth = hatMouth(), inHat = !!mouth && Math.hypot(tip.x * innerWidth - mouth.x, (tip.y * innerHeight - mouth.y) * 1.6) < mouth.r;
+  if (inHat) { game.pourInHat(dt); hatFill = Math.min(1, hatFill + dt / (ULT.length * .8)); }
+  canvas.dataset.inhat = String(inHat);
   if (motion() && Math.random() < .7) drops.push({ x: tip.x + (Math.random() - .5) * .02, y: tip.y, vx: (Math.random() - .5) * .22, vy: -.18 - Math.random() * .22, life: .22 + Math.random() * .2 });
   if (drops.length > 40) drops.splice(0, drops.length - 40);
   if (floor && floor.y < .2) {
@@ -907,6 +926,8 @@ function drawHealthBars(g: CanvasRenderingContext2D, dt: number, ink: number) {
 const YELLOW = '#ffd400', GLOSS = '#fff6b8';
 function drawStream(g: CanvasRenderingContext2D, W: number, H: number, time: number, ink: number) {
   const m = Math.min(W, H);
+  const mouth = hatMouth();
+  if (mouth && hatFill > 0) { g.beginPath(); g.ellipse(mouth.x, mouth.y + mouth.r * .05, mouth.r * (.55 + .4 * hatFill), mouth.r * .22, 0, 0, Math.PI * 2); g.fillStyle = YELLOW; g.fill(); g.lineWidth = Math.max(1.5, ink * .35); g.strokeStyle = '#151715'; g.stroke(); }
   for (const p of puddles) { g.beginPath(); g.ellipse(p.x * W, p.y * H, p.r, p.r * .3, 0, 0, Math.PI * 2); g.fillStyle = YELLOW; g.globalAlpha = .9; g.fill(); g.globalAlpha = 1; g.lineWidth = Math.max(2, ink * .45); g.strokeStyle = '#151715'; g.stroke(); g.beginPath(); g.ellipse(p.x * W - p.r * .25, p.y * H - p.r * .08, p.r * .35, p.r * .07, 0, 0, Math.PI * 2); g.fillStyle = GLOSS; g.fill(); }
   if (stream && game.ult.phase === 'pour') {
     const pts = stream.points().map(p => ({ x: p.x * W, y: p.y * H })), n = pts.length - 1, L: { x: number; y: number }[] = [], R: { x: number; y: number }[] = [], C: { x: number; y: number; w: number; nx: number; ny: number }[] = [];

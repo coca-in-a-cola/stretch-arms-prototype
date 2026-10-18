@@ -90,3 +90,45 @@ describe('throws: the prop is an independent projectile', () => {
     for (const k of PROP_KINDS) { const p = PROPS[k]; expect(p.mass).toBeGreaterThan(0); expect(p.throw).toBeGreaterThan(0); expect(p.sprite).toMatch(/^gen_.*\.png$/); }
   });
 });
+
+describe('the bar ult: the hat lands upside down and the bet is read out first', () => {
+  const counter = LEVELS[1].covers.find(c => c.id === 'counter')!;
+  test('a hat thrown onto the counter top flies, lands on the slab UPSIDE DOWN (a receptacle) and starts the ult', async () => {
+    const g = new Game(); g.start(1); grab(g, 'hat'); g.spend('grab');
+    g.launch(hand(), { x: .9, y: counter.max.y, z: (counter.min.z + counter.max.z) / 2 });
+    expect(g.ult.phase).toBe('none'); // nothing yet: it is still in the air
+    settle(g);
+    expect(g.ult.phase).toBe('intro'); expect(g.hatRest).not.toBeNull();
+    expect(g.hatRest!.flipped).toBe(true); expect(g.hatRest!.y).toBeCloseTo(counter.max.y, 6);
+    expect(g.actors.some(t => t.kind === 'hat')).toBe(false);
+  });
+  test('a hat that falls short stays on the floor where it landed and can be picked up again', () => {
+    const g = new Game(); g.start(1); grab(g, 'hat'); g.spend('grab');
+    g.launch(hand(), { x: -.5, y: 0, z: 1.2 }); settle(g);
+    expect(g.ult.phase).toBe('none'); const hat = g.actors.find(t => t.kind === 'hat')!; expect(hat.y).toBe(0);
+    g.stamina = 100; expect(g.act('grab', hat.id)).toBe('grab');
+  });
+  test('intro: the bet cards (player, then the weasel bartender) play before the stream; the old card text is gone', async () => {
+    const { BET_CARDS, cardAt } = await import('../src/ult');
+    const { ULT } = await import('../src/game');
+    const { readFileSync } = await import('node:fs');
+    expect(BET_CARDS[0].text).toContain('Спорим, бармен, на триста баксов, что я нассу вон в ту шляпу и не пролью ни капли?');
+    expect(BET_CARDS[1].who).toContain('БАРМЕН'); expect(BET_CARDS[1].text).toMatch(/Идёт|Ставлю триста/);
+    expect(cardAt(ULT.freeze + .1)).toBe(BET_CARDS[0]); expect(cardAt(BET_CARDS[1].at + .1)).toBe(BET_CARDS[1]); expect(cardAt(ULT.intro + .01)).toBeNull();
+    expect(ULT.intro).toBeCloseTo(BET_CARDS[1].at + BET_CARDS[1].len, 6);
+    for (const f of ['src/main.ts', 'src/ult.ts', 'src/game.ts']) expect(readFileSync(new URL('../' + f, import.meta.url), 'utf8')).not.toMatch(/дамы,? отвернитесь/i);
+  });
+  test('keeping the stream in the hat wins the bet (+300); spilling loses it; enemies still soak either way', async () => {
+    const { ULT } = await import('../src/game'); const { BET } = await import('../src/ult');
+    const pour = (inHatShare: number) => {
+      const g = new Game(); g.start(1); grab(g, 'hat'); g.spend('grab'); g.resolve('grab', { kind: 'cover', id: 'counter', point: { x: .9, y: counter.max.y, z: -2.4 } });
+      g.tick(ULT.intro + .01); expect(g.ult.phase).toBe('pour');
+      const enemy = g.actors.find(t => t.kind === 'enemy')!; expect(g.soak({ kind: 'enemy', id: enemy.id }, .1)).toBe('soak');
+      let t = 0; const score0 = g.score;
+      while (g.ult.phase === 'pour') { if (t < ULT.length * inHatShare) g.pourInHat(.1); g.tick(.1); t += .1; }
+      return { g, gained: g.score - score0 };
+    };
+    const won = pour(.9); expect(won.g.events.find(e => e.type === 'ultEnd')?.amount).toBe(BET.prize); expect(won.gained).toBeGreaterThan(BET.prize);
+    const lost = pour(.3); expect(lost.g.events.find(e => e.type === 'ultEnd')?.amount).toBe(0); expect(lost.gained).toBeLessThan(BET.prize);
+  });
+});

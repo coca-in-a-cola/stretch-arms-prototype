@@ -3,6 +3,7 @@ import { LEVELS, LAST_LEVEL, WINDUP, onLanding, type Layer, type PropKind, type 
 import { PROPS, REACH_COST } from './props';
 import { launch, step, type Flight, type Impact } from './throw';
 import type { Hittable } from './aim';
+import { BET, BET_CARDS } from './ult';
 
 export type Mode = 'menu' | 'select' | 'play' | 'pause' | 'result';
 export type Kind = 'enemy' | 'dog' | PropKind;
@@ -24,7 +25,7 @@ export type Outcome = 'hit' | 'grab' | 'throw' | 'protected' | 'smash' | 'cover'
 /** What the free-aim ray struck first. `id` is an actor id for enemy/dog/prop; `point` is where it struck. */
 export interface StrikeHit { kind: HitKind | 'whiff'; id?: number | string; point?: Vec3; }
 /** Secret ultimate timing: a frozen beat with the title card, then the pour. One per level attempt. */
-export const ULT = { freeze: .5, intro: 1.8, length: 6, soakRate: 1.9, dogCooldown: 1.5 } as const;
+export const ULT = { freeze: .5, intro: BET_CARDS[BET_CARDS.length - 1].at + BET_CARDS[BET_CARDS.length - 1].len, length: 6, soakRate: 1.9, dogCooldown: 1.5 } as const;
 export type UltPhase = 'none' | 'intro' | 'pour' | 'done';
 export const PROGRESS_KEY = 'long-arms.progress.v2', LEGACY_PROGRESS_KEY = 'long-arms.progress.v1';
 export const freshProgress = (): Progress => ({ version: 2, unlocked: 1, best: 0 });
@@ -103,6 +104,12 @@ export class Game {
     this.events.push({ type: 'ko', id: t.id, combo: this.combo }); this.message = 'Смыло!';
     if (this.defeated >= this.goal) this.finish(true); return 'ko';
   }
+  /** One frame of the pour landing in the upside-down hat: that is the bet (and a trickle of points). */
+  pourInHat(dt: number) {
+    if (this.mode !== 'play' || this.ult.phase !== 'pour') return false;
+    const before = Math.floor(this.ult.hat * BET.perSecond); this.ult.hat += dt; this.score += Math.floor(this.ult.hat * BET.perSecond) - before;
+    this.message = 'Прямо в шляпу! Ни капли мимо…'; return true;
+  }
   pause() { if (this.mode === 'play') this.mode = 'pause'; else if (this.mode === 'pause') this.mode = 'play'; }
   suspend() { if (this.mode === 'play') this.mode = 'pause'; }
   spawn() {
@@ -120,11 +127,15 @@ export class Game {
   }
   tick(dt: number) {
     if (this.mode !== 'play') return;
-    if (this.ult.phase === 'intro') { this.ult.t += dt; if (this.ult.t >= ULT.intro) { this.ult = { phase: 'pour', t: 0, meter: 1, hat: 0 }; this.message = 'Веди струю прицелом! Пса не задень.'; } return; } // everyone freezes
+    if (this.ult.phase === 'intro') { this.ult.t += dt; if (this.ult.t >= ULT.intro) { this.ult = { phase: 'pour', t: 0, meter: 1, hat: 0 }; this.message = 'Держи струю в шляпе! Задир можно и окатить. Пса не задень.'; } return; } // everyone freezes
     const pouring = this.ult.phase === 'pour';
     if (pouring) {
       this.ult.t += dt; this.ult.meter = Math.max(0, 1 - this.ult.t / ULT.length); this.dogSoak = Math.max(0, this.dogSoak - dt);
-      if (this.ult.t >= ULT.length) { this.ult = { ...this.ult, phase: 'done', t: 0, meter: 0 }; this.events.push({ type: 'ultEnd', id: 0, combo: this.combo }); this.message = 'Фух. Вот это облегчение.'; }
+      if (this.ult.t >= ULT.length) {
+        const won = this.ult.hat >= ULT.length * BET.share;
+        this.ult = { ...this.ult, phase: 'done', t: 0, meter: 0 }; this.events.push({ type: 'ultEnd', id: 0, combo: this.combo, amount: won ? BET.prize : 0 });
+        if (won) { this.score += BET.prize; this.message = `Ни капли мимо! Бармен платит ${BET.prize}.`; } else this.message = 'Пролил! Бармен забирает свои триста.';
+      }
     }
     this.elapsed += dt; this.stamina = Math.min(100, this.stamina + dt * 21); this.spawnClock += dt;
     for (const t of [...this.actors]) {
