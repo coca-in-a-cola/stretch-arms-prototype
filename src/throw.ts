@@ -28,6 +28,8 @@ export function launch(id: number, kind: PropKind, from: Vec3, to: Vec3): Flight
   return { id, kind, pos: { ...from }, vel, age: 0, angle: 0, spin: (to.x >= from.x ? -1 : 1) * 11 / Math.sqrt(PROPS[kind].mass), struck: false };
 }
 
+/** Characters: a flying prop strikes one once, then pops off it. */
+const LIVING = new Set<HitKind>(['enemy', 'dog', 'friend', 'thug']);
 const inside = (p: Vec3, h: Hittable) => p.x > h.min.x && p.x < h.max.x && p.y > h.min.y && p.y < h.max.y && p.z > h.min.z && p.z < h.max.z;
 const EPS = 1e-3;
 
@@ -46,7 +48,7 @@ export function step(f: Flight, dt: number, world: readonly Hittable[]): Impact[
     const seg = { x: next.x - f.pos.x, y: next.y - f.pos.y, z: next.z - f.pos.z }, len = Math.hypot(seg.x, seg.y, seg.z), dir = normalize(seg);
     let best: { t: number; hit: Hittable } | null = null;
     for (const w of world) {
-      if (w.kind === 'prop' || (f.struck && (w.kind === 'enemy' || w.kind === 'dog')) || inside(f.pos, w)) continue;
+      if (w.kind === 'prop' || (f.struck && LIVING.has(w.kind)) || inside(f.pos, w)) continue;
       const t = rayBox(f.pos, dir, w.min, w.max);
       if (t !== null && t <= len && (!best || t < best.t)) best = { t, hit: w };
     }
@@ -54,7 +56,7 @@ export function step(f: Flight, dt: number, world: readonly Hittable[]): Impact[
     const tGround = next.y <= 0 && f.pos.y > 0 ? len * f.pos.y / (f.pos.y - next.y) : Infinity;
     if (best && best.t <= tGround) {
       const w = best.hit, p = { x: f.pos.x + dir.x * best.t, y: f.pos.y + dir.y * best.t, z: f.pos.z + dir.z * best.t };
-      if (w.kind === 'enemy' || w.kind === 'dog') {
+      if (LIVING.has(w.kind)) {
         f.struck = true; out.push({ type: 'hit', kind: w.kind, id: w.id, point: p });
         // Knocked off the victim: a little pop back toward the player, then it falls.
         f.pos = { x: p.x, y: p.y, z: w.max.z + .08 }; f.vel = { x: f.vel.x * .12, y: 1.6, z: 1.4 }; f.spin *= -.6;

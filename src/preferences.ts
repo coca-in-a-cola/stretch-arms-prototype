@@ -21,7 +21,8 @@ export function unlockAudio(){
     if(context.state==='suspended')void context.resume().catch(()=>{audioAvailable=false;});
   } catch { audioAvailable=false; }
 }
-export type Sfx='ui'|'hit'|'throw'|'grab'|'miss'|'whoosh'|'ko'|'dog'|'attack'|'cover'|'windup'|'ding'|'slide'|'yuck'|'thud'|'shatter'|'toss'|'bell'|'cuckoo'|'buzz'|'flop';
+export type Sfx='ui'|'hit'|'throw'|'grab'|'miss'|'whoosh'|'ko'|'dog'|'attack'|'cover'|'windup'|'ding'|'slide'|'yuck'|'thud'|'shatter'|'toss'|'bell'|'cuckoo'|'buzz'|'flop'
+  |'huff'|'squeak'|'harp'|'whistle'|'crash'|'strike'|'splat'|'zing'|'steal'|'pop'|'geyser'|'iris'|'boing';
 /** Tiny synth voices: [wave, start Hz, end Hz, length s, volume, noise mix, delay s]. */
 const VOICES:Record<Sfx,[OscillatorType,number,number,number,number,number,number?][]>={
   ui:[['sine',520,300,.1,.05,0]],
@@ -48,6 +49,22 @@ const VOICES:Record<Sfx,[OscillatorType,number,number,number,number,number,numbe
   buzz:[['sawtooth',110,108,.45,.03,.5],['square',220,218,.3,.012,0,.1]],
   flop:[['sine',320,110,.35,.04,.6]],
   shatter:[['square',2400,1800,.18,.02,.9],['triangle',1600,900,.25,.025,.6],['sine',3200,2600,.12,.015,0]],
+  // SA-V4-17: an offended friend's indignant 'hmph!', the rubber chicken, the halo dog's harp glissando, the falling
+  // piano's whistle and crash, a bowling strike, a pigeon splat, a slingshot, the rat's pickpocket, a mole pop,
+  // the hydrant geyser, the intertitle iris and a pancake peeling off the ground.
+  huff:[['sawtooth',330,180,.12,.04,.4],['sawtooth',300,150,.2,.035,.5,.14]],
+  squeak:[['square',1300,1900,.09,.035,0],['square',1900,1100,.16,.03,0,.09]],
+  harp:[0,4,7,12,16,19,24,28].map((n,i)=>['triangle',523*2**(n/12),523*2**(n/12)*.995,.9,.035,0,i*.07] as [OscillatorType,number,number,number,number,number,number]),
+  whistle:[['sine',2300,500,1.1,.045,0]],
+  crash:[['sawtooth',90,35,.6,.09,.8],['square',1200,300,.4,.03,.9,.03],['triangle',60,40,.7,.08,.3]],
+  strike:[['square',900,300,.12,.04,.8],['triangle',200,60,.4,.06,.7,.05],['square',1400,500,.2,.02,.9,.12]],
+  splat:[['sine',240,60,.25,.07,.7]],
+  zing:[['sawtooth',400,1400,.12,.03,.2]],
+  steal:[['sine',600,1200,.08,.04,0],['sine',1200,600,.12,.03,0,.08]],
+  pop:[['sine',220,660,.09,.05,.2]],
+  geyser:[['sine',300,900,.9,.04,.95]],
+  iris:[['triangle',880,440,.25,.03,0],['triangle',660,330,.3,.03,0,.12]],
+  boing:[['sine',140,420,.35,.06,0]],
 };
 let noise:AudioBuffer|undefined;
 export function sound(kind:Sfx){

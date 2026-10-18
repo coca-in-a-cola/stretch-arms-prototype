@@ -1,6 +1,6 @@
 // Free-aim shot resolution. Pure math (no Three.js) so the exact rules the game uses are unit-testable.
 export interface Vec3 { x: number; y: number; z: number; }
-export type HitKind = 'enemy' | 'dog' | 'prop' | 'cover' | 'scenery';
+export type HitKind = 'enemy' | 'dog' | 'friend' | 'thug' | 'prop' | 'cover' | 'scenery';
 export interface Hittable { id: number | string; kind: HitKind; min: Vec3; max: Vec3; }
 export interface Shot { kind: HitKind | 'whiff'; id?: number | string; point: Vec3; distance: number; }
 

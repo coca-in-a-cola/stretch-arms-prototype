@@ -2,6 +2,7 @@
 // so what you see is exactly what the fist can hit.
 import type { Hittable, Vec3 } from './aim';
 import { PROPS, type PropKind } from './props';
+import { FRIEND_BODY, THUG_BODY, MOLE, friendPose, thugPose, type FriendKind, type FriendPlan, type ThugKind } from './friends';
 export type { PropKind } from './props';
 
 export type Layer = 'foreground' | 'midground' | 'background';
@@ -29,6 +30,10 @@ export interface LevelLayout {
   props: PlacedProp[];
   /** Secret hat spot (on a stool) and the landing zone it must be thrown onto: the top band of a cover. */
   hat?: Vec3; landing?: { cover: string; band: number };
+  /** Must-not-hit friends living on the level (the mole, strollers, sleepers). */
+  friends: FriendPlan[];
+  /** Close-range thugs pop in the foreground (the wide street only). */
+  thugs?: boolean;
 }
 
 export interface Body { w: number; h: number; inset: readonly [number, number, number, number]; }
@@ -141,12 +146,19 @@ const bar: LevelLayout = {
     { kind: 'mug', x: -3.25, y: 1.3, z: 3.0 }, { kind: 'whiskey', x: 2.6, y: 1.05, z: 3.05 }, { kind: 'eggs', x: 3.3, y: 1.05, z: 3.25 }, // piano lid, table
     { kind: 'mug', x: -2.3, y: 1.15, z: -2.12 }, { kind: 'shaker', x: -1.5, y: 1.15, z: -2.12 }, { kind: 'whiskey', x: 3.05, y: 1.15, z: -2.12 }, // counter
     { kind: 'stool', x: -.95, y: 0, z: 3.9 }, { kind: 'spittoon', x: 1.95, y: 0, z: 4.0 }, { kind: 'plunger', x: -1.6, y: 0, z: 1.1 },
-    { kind: 'mug', x: .5, y: 0, z: 1.05 }, { kind: 'whiskey', x: -4.4, y: 0, z: 1.5 }, { kind: 'stool', x: 4.3, y: 0, z: .9 }, { kind: 'eggs', x: -3.3, y: 0, z: -.3 },
+    { kind: 'mug', x: .5, y: 0, z: 1.05 }, { kind: 'whiskey', x: -4.4, y: 0, z: 1.5 }, { kind: 'stool', x: 3.55, y: 0, z: .35 }, { kind: 'eggs', x: -3.3, y: 0, z: -.3 },
   ],
   // The piano plays ragtime, the cuckoo clock on the back-room wall insults you, the hanging lamps swing and flicker.
   gags: [{ id: 'piano', kind: 'piano' }, gagBox('gag-cuckoo', 'cuckoo', 6.1, 2.6, -7.12, .66, .82, .12), gagBox('gag-lamp-0', 'lamp', -3, 5.7, -3.2, 1.1, .6, 1.1), gagBox('gag-lamp-1', 'lamp', 2.5, 5.7, -3.2, 1.1, .6, 1.1)],
   hat: { x: .95, y: .78, z: 3.45 },
   landing: { cover: 'counter', band: .4 },
+  // The mole tunnels under the floorboards and pops up right in front of patrons; a kitten strolls along the counter
+  // (in front of the bartender!); a drunk sleeps it off by the wall and must not be woken.
+  friends: [
+    { who: 'mole', x0: 0, x1: 0, y: 0, z: 0, period: 0, spots: [{ x: 2.3, z: -1.3 }, { x: .1, z: 1.7 }, { x: -1.25, z: -1.3 }, { x: -.75, z: 2.6 }, { x: 3.7, z: -.9 }] },
+    { who: 'kitten', x0: -2.5, x1: 2.75, y: 1.15, z: -2.25, period: 17 },
+    { who: 'drunk', x0: 4.75, x1: 4.75, y: 0, z: 1.75, period: 0 },
+  ],
 };
 
 /** Level 2, the street: a panorama about three screens wide — the yard (left) runs into the dusk alley (right). */
@@ -171,6 +183,13 @@ const street: LevelLayout = {
     { kind: 'fish', x: 10.8, y: 1.3, z: 3.15 }, { kind: 'pie', x: 9.0, y: 0, z: 3.9 }, { kind: 'tire', x: 12.7, y: 0, z: 3.5 },
     { kind: 'flowerpot', x: 10.0, y: 1.02, z: -1.9 }, { kind: 'chicken', x: 8.1, y: 0, z: -.2 }, { kind: 'bowling', x: 13.7, y: 0, z: 1.4 }, { kind: 'bottle', x: 14.3, y: 0, z: 3.7 },
   ],
+  // The mole pops up in front of yard and alley bullies; granny crosses the whole street; the postman pigeon walks the alley.
+  friends: [
+    { who: 'mole', x0: 0, x1: 0, y: 0, z: 0, period: 0, spots: [{ x: YARD_X - 1.6, z: -.95 }, { x: ALLEY_X + .4, z: -1.0 }, { x: YARD_X + 2.0, z: 4.4 }, { x: ALLEY_X - 2.4, z: 4.3 }, { x: YARD_X + .95, z: -.95 }, { x: ALLEY_X + 2.9, z: -1.2 }] },
+    { who: 'granny', x0: -14, x1: 14, y: 0, z: .55, period: 56 },
+    { who: 'pigeon', x0: 3.6, x1: 13.2, y: 0, z: 1.75, period: 19 },
+  ],
+  thugs: true,
 };
 
 export const LEVELS: Record<number, LevelLayout> = { 1: bar, 2: street };
@@ -209,29 +228,51 @@ export function dogWalk(age: number, motion = true): { dx: number; walking: bool
   return { dx: B + (A - B) * smooth(ph - 8), walking: true, facing: -1 };
 }
 
+/** Now and then the halo dog ascends to heaven on a harp glissando, hangs there blissfully, and floats back down. */
+export const ASCENT = { period: 23, start: 15, up: 1.4, hold: 2.2, down: 1.4, height: 1.6 } as const;
+export function dogAscent(age: number, motion = true): number {
+  if (!motion) return 0;
+  const ph = (age % ASCENT.period) - ASCENT.start; if (ph < 0) return 0;
+  const sm = (v: number) => v * v * (3 - 2 * v);
+  if (ph < ASCENT.up) return ASCENT.height * sm(ph / ASCENT.up);
+  if (ph < ASCENT.up + ASCENT.hold) return ASCENT.height;
+  const d = ph - ASCENT.up - ASCENT.hold; return d < ASCENT.down ? ASCENT.height * (1 - sm(d / ASCENT.down)) : 0;
+}
+
 /** Sprite feet position for an actor at a given age. Enemies rise/slide out of hiding; this is the hit pose too. */
-export function pose(level: number, t: { kind: string; slot?: number; x: number; y: number; z?: number; age: number; deadline?: number }, motion = true): Vec3 {
-  if (t.kind === 'dog') return { x: t.x + dogWalk(t.age, motion).dx, y: t.y, z: t.z ?? 0 };
+export interface Placed { kind: string; slot?: number; x: number; y: number; z?: number; age: number; deadline?: number; plan?: number; side?: -1 | 1; from?: 'edge' | 'manhole'; antic?: unknown; }
+export function pose(level: number, t: Placed, motion = true): Vec3 {
+  if (t.kind === 'dog') return { x: t.x + dogWalk(t.age, motion).dx, y: t.y + dogAscent(t.age, motion), z: t.z ?? 0 };
+  if (t.kind === 'friend') { const plan = LEVELS[level].friends[t.plan ?? 0]; if (plan) return friendPose(plan, t.age, motion); }
+  if (t.kind === 'thug') return thugPose({ x: t.x, z: t.z ?? 0, side: t.side ?? 1, from: t.from ?? 'edge' }, t.age, motion);
   const slot = t.slot === undefined ? undefined : LEVELS[level].slots[t.slot];
   if (!slot) return { x: t.x, y: t.y, z: t.z ?? 0 };
-  const k = exposure(t.age, t.deadline, motion);
+  const k = t.antic ? (motion ? ease(Math.min(1, t.age / RISE_TIME)) : 1) : exposure(t.age, t.deadline, motion); // busy clowning: no ducking
   return { x: slot.hideX + (slot.x - slot.hideX) * k, y: slot.hideY + (slot.y - slot.hideY) * k, z: slot.z };
 }
 
-export function bodyBox(kind: BodyKind, at: Vec3, skin?: Skin): { min: Vec3; max: Vec3 } {
-  const c = BODY[kind]; const [l, r, b, tp] = skin ? SKIN_INSET[skin] : c.inset;
+/** The drawn frame size of any actor: props / enemies / the dog from BODY, friends and thugs by who they are. */
+export function bodyOf(kind: string, who?: string): Body {
+  if (kind === 'friend' && who && who in FRIEND_BODY) return FRIEND_BODY[who as FriendKind];
+  if (kind === 'thug' && who && who in THUG_BODY) return THUG_BODY[who as ThugKind];
+  return BODY[kind as BodyKind] ?? BODY.enemy;
+}
+export function bodyBox(kind: BodyKind | 'friend' | 'thug', at: Vec3, skin?: Skin, who?: string): { min: Vec3; max: Vec3 } {
+  const c = bodyOf(kind, who); const [l, r, b, tp] = skin ? SKIN_INSET[skin] : c.inset;
   return { min: { x: at.x - c.w / 2 + c.w * l, y: at.y + c.h * b, z: at.z - .04 }, max: { x: at.x - c.w / 2 + c.w * r, y: at.y + c.h * tp, z: at.z + .04 } };
 }
 
 /** Everything the fist can collide with at this moment: live actors + static covers. */
-export function hittables(level: number, actors: readonly { id: number; kind: BodyKind | 'enemy' | 'dog'; slot?: number; skin?: Skin; x: number; y: number; z?: number; age: number; deadline?: number }[], motion = true, scenery: Hittable[] = []): Hittable[] {
+export function hittables(level: number, actors: readonly (Placed & { id: number; kind: BodyKind | 'friend' | 'thug'; skin?: Skin; who?: string })[], motion = true, scenery: Hittable[] = []): Hittable[] {
   const out: Hittable[] = LEVELS[level].covers.map(c => ({ id: c.id, kind: 'cover', min: c.min, max: c.max }));
   for (const g of LEVELS[level].gags) if (g.min && g.max) out.push({ id: g.id, kind: 'cover', min: g.min, max: g.max });
   for (const t of actors) {
-    const b = bodyBox(t.kind, pose(level, t, motion), t.kind === 'enemy' ? t.skin : undefined);
+    // A mole still (mostly) underground is out of reach: the fist sails over the mound.
+    if (t.kind === 'friend' && t.who === 'mole') { const plan = LEVELS[level].friends[t.plan ?? 0]; if (plan && friendPose(plan, t.age, motion).rise < MOLE.hittable) continue; }
+    const b = bodyBox(t.kind, pose(level, t, motion), t.kind === 'enemy' ? t.skin : undefined, t.who);
     // The walking dog frame is a low side view: its hitbox drops to the drawn back/ears.
     if (t.kind === 'dog' && dogWalk(t.age, motion).walking) b.max.y = b.min.y + BODY.dog.h * (DOG_WALK_TOP - BODY.dog.inset[2]);
-    out.push({ id: t.id, kind: t.kind === 'enemy' ? 'enemy' : t.kind === 'dog' ? 'dog' : 'prop', ...b });
+    out.push({ id: t.id, kind: t.kind === 'enemy' || t.kind === 'dog' || t.kind === 'friend' || t.kind === 'thug' ? t.kind : 'prop', ...b });
   }
   return out.concat(scenery);
 }

@@ -1,7 +1,8 @@
 import * as THREE from 'three';
 import { type GameEvent, Game, loadProgress, resultActions, healthBarAlpha, PROGRESS_KEY, costOf, ULT, type Action, type Kind, type Actor, type Outcome } from './game';
 import { resolveShot, type Hittable, type Shot, type Vec3 } from './aim';
-import { LEVELS, BODY, SKIN_INSET, WINDUP, YARD_X, ALLEY_X, LAST_LEVEL, clampPan, pose, dogWalk, hittables, cameraFor, onLanding, type Cover, type BodyKind, type Skin } from './layout';
+import { LEVELS, BODY, SKIN_INSET, WINDUP, YARD_X, ALLEY_X, LAST_LEVEL, clampPan, pose, dogWalk, dogAscent, bodyOf, hittables, cameraFor, onLanding, type Cover, type BodyKind, type Skin } from './layout';
+import { FRIEND_MAD, THUG, friendPose, type FriendKind, type ThugKind } from './friends';
 import './style.css';
 import { makeStreet } from './street';
 import { makeBar } from './bar';
@@ -259,10 +260,15 @@ const frames = {
   windup: spriteTexture('gen_cat_windup.png', 'enemy'), hurt: spriteTexture('gen_cat_hurt.png', 'enemy'), ko: spriteTexture('gen_cat_ko.png', 'enemy'),
   walk: spriteTexture('gen_dog_walk.png', 'dog'), sad: spriteTexture('gen_dog_sad.png', 'dog'),
 };
-for (const t of [...Object.values(textures), ...Object.values(frames), ...Object.values(skins)]) { t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4; }
-const frameName = new Map<THREE.Texture, string>([[textures.enemy, 'idle'], [textures.dog, 'sit'], ...Object.entries(frames).map(([k, t]) => [t, k] as [THREE.Texture, string])]);
+/** Friends (must not hit): calm / offended / furious, plus the mole's lantern pop. Thugs: appear / attack / knocked out. */
+const friendFrames = Object.fromEntries((['granny', 'kitten', 'pigeon', 'drunk'] as const).map(w => [w, { idle: spriteTexture(`gen_${w}_idle.png`, 'dog'), mad: spriteTexture(`gen_${w}_mad.png`, 'dog'), fury: spriteTexture(`gen_${w}_fury.png`, 'dog') }])) as Record<FriendKind, { idle: THREE.Texture; mad: THREE.Texture; fury: THREE.Texture; lantern?: THREE.Texture }>;
+{ const hurt = spriteTexture('gen_mole_hurt.png', 'dog'); friendFrames.mole = { idle: spriteTexture('gen_mole_up.png', 'dog'), lantern: spriteTexture('gen_mole_lantern.png', 'dog'), mad: hurt, fury: hurt }; }
+const thugFrames = Object.fromEntries((['rat', 'gang', 'kid'] as const).map(w => [w, { appear: spriteTexture(`gen_${w}_appear.png`, 'enemy'), attack: spriteTexture(`gen_${w}_attack.png`, 'enemy'), ko: spriteTexture(`gen_${w}_ko.png`, 'enemy') }])) as Record<ThugKind, { appear: THREE.Texture; attack: THREE.Texture; ko: THREE.Texture }>;
+for (const t of [...Object.values(textures), ...Object.values(frames), ...Object.values(skins), ...Object.values(friendFrames).flatMap(f => Object.values(f)), ...Object.values(thugFrames).flatMap(f => Object.values(f))]) { t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4; }
+const frameName = new Map<THREE.Texture, string>([[textures.enemy, 'idle'], [textures.dog, 'sit'], ...Object.entries(frames).map(([k, t]) => [t, k] as [THREE.Texture, string]),
+  ...Object.values(friendFrames).flatMap(f => Object.entries(f).map(([k, t]) => [t, k] as [THREE.Texture, string])), ...Object.values(thugFrames).flatMap(f => Object.entries(f).map(([k, t]) => [t, k] as [THREE.Texture, string]))]);
 function showFrame(v: ActorView, map: THREE.Texture) {
-  if (v.skin) { v.frame = map === frames.windup ? 'windup' : map === frames.hurt ? 'hurt' : map === frames.ko ? 'ko' : 'idle'; return; } // patrons keep their one pose
+  if (v.skin && v.kind === 'enemy') { v.frame = map === frames.windup ? 'windup' : map === frames.hurt ? 'hurt' : map === frames.ko ? 'ko' : 'idle'; return; } // patrons keep their one pose
   if (v.sprite.material.map === map) return;
   v.frame = frameName.get(map);
   v.sprite.material.map = map; (v.sprite.customDepthMaterial as THREE.MeshDepthMaterial).map = map;
@@ -347,6 +353,14 @@ const cloudTex = overlayTexture(g => {
   g.beginPath(); g.arc(90, 52, 30, Math.PI * .5, Math.PI * 1.6); g.arc(130, 38, 34, Math.PI * 1.05, Math.PI * 1.95); g.arc(172, 54, 28, Math.PI * 1.4, Math.PI * .5); g.closePath(); g.fill(); g.stroke();
   g.strokeStyle = '#3d7fd6'; g.lineWidth = 6; for (const x of [96, 124, 152, 176]) { g.beginPath(); g.moveTo(x, 92); g.lineTo(x - 6, 116); g.stroke(); }
 });
+/** Friends wear a little pink heart overhead: the same 'do not touch' promise as the dog's halo. */
+const heartTex = overlayTexture(g => {
+  g.beginPath(); g.moveTo(64, 112); g.bezierCurveTo(8, 72, 14, 18, 64, 40); g.bezierCurveTo(114, 18, 120, 72, 64, 112); g.closePath();
+  g.fillStyle = '#ff6fa8'; g.fill(); g.lineWidth = 9; g.strokeStyle = '#1c1d1a'; g.stroke(); g.fillStyle = '#ffffff'; g.beginPath(); g.ellipse(44, 52, 9, 6, -.6, 0, Math.PI * 2); g.fill();
+}, 128, 128);
+const zzzTex = overlayTexture(g => { g.font = '900 54px Georgia'; g.lineWidth = 7; g.strokeStyle = '#1c1d1a'; g.fillStyle = '#9fd3ff'; [[30, 110, 1], [100, 72, .8], [170, 40, .6]].forEach(([x, y, k]) => { g.save(); g.translate(x, y); g.scale(k, k); g.strokeText('Z', 0, 0); g.fillText('Z', 0, 0); g.restore(); }); });
+/** A soft shaft of heavenly light for the dog's ascension. */
+const beamTex = overlayTexture(g => { const gr = g.createLinearGradient(0, 0, 0, 512); gr.addColorStop(0, 'rgba(255,240,170,0)'); gr.addColorStop(.25, 'rgba(255,240,170,.55)'); gr.addColorStop(1, 'rgba(255,240,170,.1)'); g.fillStyle = gr; g.beginPath(); g.moveTo(90, 0); g.lineTo(166, 0); g.lineTo(240, 512); g.lineTo(16, 512); g.closePath(); g.fill(); }, 256, 512);
 function overlay(map: THREE.Texture, w: number, h: number, order = 2) {
   const s = new THREE.Sprite(new THREE.SpriteMaterial({ map, transparent: true, depthWrite: false }));
   s.scale.set(w, h, 1); s.renderOrder = order; return s;
@@ -354,7 +368,7 @@ function overlay(map: THREE.Texture, w: number, h: number, order = 2) {
 
 interface ActorView {
   kind: Kind; group: THREE.Group; body: THREE.Group; sprite: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial>;
-  flash: number; sad: number; facing: number; /** Health bar: the trailing 'just lost' chunk, eased down to the real value. */ ghost?: number; frame?: string; wound?: boolean; skin?: Exclude<Skin, 'cat'>; wet?: number; yuck?: boolean; warning?: THREE.Sprite; stars?: THREE.Sprite; halo?: THREE.Sprite; cloud?: THREE.Sprite;
+  flash: number; sad: number; facing: number; who?: FriendKind | ThugKind; heart?: THREE.Sprite; zzz?: THREE.Sprite; beam?: THREE.Sprite; hole?: THREE.Mesh; ascending?: boolean; /** Health bar: the trailing 'just lost' chunk, eased down to the real value. */ ghost?: number; frame?: string; wound?: boolean; skin?: Exclude<Skin, 'cat'>; wet?: number; yuck?: boolean; warning?: THREE.Sprite; stars?: THREE.Sprite; halo?: THREE.Sprite; cloud?: THREE.Sprite;
 }
 const actorGroup = new THREE.Group(); scene.add(actorGroup);
 const views = new Map<number, ActorView>();
@@ -363,17 +377,26 @@ const leaving: { view: ActorView; age: number; spin: number; how: 'ko' | 'attack
 const exits = new Map<number, 'ko' | 'attack'>();
 
 function makeView(t: Actor): ActorView {
-  const c = BODY[t.kind]; const group = new THREE.Group(), body = new THREE.Group(); group.add(body);
+  const c = bodyOf(t.kind, t.who); const group = new THREE.Group(), body = new THREE.Group(); group.add(body);
   const geometry = new THREE.PlaneGeometry(c.w, c.h); geometry.translate(0, c.h / 2, 0);
-  const skin = t.kind === 'enemy' && t.skin && t.skin !== 'cat' ? t.skin : undefined, map = skin ? skins[skin] : textures[t.kind];
+  const skin = t.kind === 'enemy' && t.skin && t.skin !== 'cat' ? t.skin : undefined;
+  const map = skin ? skins[skin] : t.kind === 'friend' ? friendFrames[t.who as FriendKind].idle : t.kind === 'thug' ? thugFrames[t.who as ThugKind].appear : textures[t.kind as BodyKind];
   const material = new THREE.MeshBasicMaterial({ map, alphaTest: .5, side: THREE.DoubleSide });
   const sprite = new THREE.Mesh(geometry, material); sprite.castShadow = true;
   sprite.customDepthMaterial = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking, map, alphaTest: .5 });
   body.add(sprite);
-  if (t.y <= .01) { const shadow = new THREE.Mesh(new THREE.CircleGeometry(c.w * .36, 24), blob); shadow.rotation.x = -Math.PI / 2; shadow.position.y = .035; shadow.scale.y = .45; shadow.renderOrder = 1; group.add(shadow); }
+  if (t.y <= .01 && t.who !== 'mole') { const shadow = new THREE.Mesh(new THREE.CircleGeometry(c.w * .36, 24), blob); shadow.rotation.x = -Math.PI / 2; shadow.position.y = .035; shadow.scale.y = .45; shadow.renderOrder = 1; group.add(shadow); }
   // Enemies square up toward the middle of the yard; the dog turns with its stroll.
-  const view: ActorView = { kind: t.kind, group, body, sprite, flash: 0, sad: 0, skin, facing: t.kind === 'enemy' && t.x < 0 ? -1 : 1 };
-  if (skin) view.frame = 'idle';
+  const view: ActorView = { kind: t.kind, group, body, sprite, flash: 0, sad: 0, skin, who: t.who, facing: t.kind === 'enemy' && t.x < 0 ? -1 : t.kind === 'thug' ? -(t.side ?? 1) : 1 };
+  if (t.kind === 'friend') {
+    view.heart = overlay(heartTex, .26, .26); body.add(view.heart);
+    if (t.who === 'drunk') { view.zzz = overlay(zzzTex, .7, .35); view.zzz.position.set(.45, c.h * .95, 0); body.add(view.zzz); }
+  }
+  if (t.kind === 'thug') {
+    view.warning = new THREE.Sprite(new THREE.SpriteMaterial({ map: ring, depthWrite: false })); view.warning.position.set(0, c.h * .82, 0); body.add(view.warning);
+    if (t.from === 'manhole') { view.hole = new THREE.Mesh(new THREE.CircleGeometry(.62, 24), new THREE.MeshBasicMaterial({ color: '#141414' })); view.hole.rotation.x = -Math.PI / 2; view.hole.scale.y = .5; view.hole.renderOrder = 1; group.add(view.hole); }
+  }
+  view.frame = skin ? 'idle' : frameName.get(map);
   if (t.kind === 'enemy') {
     view.warning = new THREE.Sprite(new THREE.SpriteMaterial({ map: ring, depthWrite: false })); view.warning.position.set(0, c.h + .3, 0); body.add(view.warning);
     view.stars = overlay(starsTex, 1.1, .55); view.stars.position.set(0, c.h * .97, .05); view.stars.visible = false; body.add(view.stars);
@@ -381,6 +404,7 @@ function makeView(t: Actor): ActorView {
   if (t.kind === 'dog') {
     view.halo = overlay(haloTex, .62, .31); body.add(view.halo);
     view.cloud = overlay(cloudTex, .8, .4); view.cloud.visible = false; body.add(view.cloud);
+    view.beam = overlay(beamTex, 1.6, 6, 1); view.beam.visible = false; group.add(view.beam);
   }
   actorGroup.add(group); views.set(t.id, view); return view;
 }
@@ -405,7 +429,7 @@ function syncActors(time: number) {
     // Ids restart with every level: a view left over from another actor with the same id is rebuilt, never reused.
     const old = views.get(t.id), skin = t.kind === 'enemy' && t.skin && t.skin !== 'cat' ? t.skin : undefined;
     if (old && (old.kind !== t.kind || old.skin !== skin)) { views.delete(t.id); disposeView(old); }
-    const view = views.get(t.id) ?? makeView(t); const c = BODY[t.kind];
+    const view = views.get(t.id) ?? makeView(t); const c = bodyOf(t.kind, t.who);
     const p = pose(game.level, t, motion);
     view.group.position.set(p.x, p.y, p.z);
     const a = motion ? (t.id < 0 ? time : t.age) + t.id * .7 : 0;
@@ -448,6 +472,31 @@ function syncActors(time: number) {
         view.halo.material.rotation = sad * .45 * Math.sin(time * 6); view.halo.material.color.setRGB(1, 1, 1 - sad * .5);
       }
       if (view.cloud) { view.cloud.visible = sad > 0; view.cloud.position.set(hx, c.h * 1.25 + Math.sin(time * 4) * .03, 0); }
+      // Ascension: a shaft of light, a harp glissando, the halo glowing — then a gentle float back down.
+      const up = dogAscent(motion ? (t.id < 0 ? time : t.age) : 0, motion);
+      if (up > 0 && !view.ascending && t.id > 0) { view.ascending = true; sound('harp'); const s = toScreen({ x: p.x, y: p.y + 2.2, z: p.z }); callout('♪ АЛЛИЛУЙЯ! ♪', s.x, s.y, 'combo'); }
+      if (up <= 0) view.ascending = false;
+      if (view.beam) { view.beam.visible = up > 0; view.beam.position.set(0, 3 - p.y + up * .2, -.05); view.beam.material.opacity = Math.min(1, up / .5); }
+      if (up > 0) { rot = Math.sin(time * 2) * .05; lift += Math.sin(time * 3) * .03; }
+    } else if (t.kind === 'friend') {
+      const plan = LEVELS[game.level].friends[t.plan ?? 0], fp = plan ? friendPose(plan, t.age, motion) : null, ff = friendFrames[t.who as FriendKind];
+      const mad = t.mad ?? 0;
+      showFrame(view, mad > 0 ? (mad > FRIEND_MAD * .5 ? ff.mad : ff.fury) : fp?.lantern && ff.lantern ? ff.lantern : ff.idle);
+      if (fp) view.facing = fp.facing; // every friend is drawn facing right
+      if (mad > 0) { rot = Math.sin(time * 40) * .04; sx = 1.06; sy = .96; tint.setRGB(1, .82, .8); }
+      else if (fp?.walking) { const hop = Math.abs(Math.sin(a * 7)); lift = hop * .05; rot = Math.sin(a * 7) * .05; }
+      else if (t.who === 'drunk') rot = Math.sin(a * .9) * .07; // swaying in his sleep
+      else { const breathe = Math.sin(a * 2.6); sy = 1 + breathe * .02; }
+      if (view.heart) { view.heart.visible = (fp?.rise ?? 1) > .6 && mad <= 0; view.heart.position.set(0, c.h * c.inset[3] + .2 + (motion ? Math.sin(time * 3 + t.id) * .03 : 0), .02); }
+      if (view.zzz) { view.zzz.visible = mad <= 0; view.zzz.position.y = c.h * .95 + (motion ? (time * .25 % .3) : 0); }
+    } else if (t.kind === 'thug') {
+      const tf = thugFrames[t.who as ThugKind], striking = t.age >= THUG.attack, tele = THREE.MathUtils.clamp((t.age - 1.2) / (THUG.attack - 1.2), 0, 1);
+      showFrame(view, striking ? tf.attack : tf.appear);
+      const hop = Math.abs(Math.sin(a * 9)); lift = hop * .04; rot = Math.sin(a * 9) * .04;
+      if (tele > 0 && motion) { rot += Math.sin(time * 50) * .03 * tele; tint.setRGB(1, 1 - .4 * tele * (.5 + .5 * Math.sin(time * 18)), 1 - .45 * tele); }
+      if (striking) { sx = 1.15; sy = 1.1; }
+      if (view.warning) { view.warning.visible = t.age > .9; view.warning.scale.setScalar(.34 + tele * .26); }
+      if (view.hole) view.hole.position.y = -p.y + .03;
     } else {
       rot = motion ? Math.sin(a * 1.6) * .04 : 0;
       if (t.kind === 'hat' && motion) { lift = Math.abs(Math.sin(a * 2.4)) * .05; rot = Math.sin(a * 2.4) * .08; } // the bowler twitches: pick me up
@@ -465,7 +514,8 @@ function animateLeaving(dt: number, time: number) {
   for (let i = leaving.length - 1; i >= 0; i--) {
     const d = leaving[i]; d.age += dt; const v = d.view, m = v.sprite.material;
     if (d.how === 'ko') {
-      showFrame(v, d.age < .22 ? frames.hurt : frames.ko); // recoil from the blow, then dizzy knockout
+      const tf = v.kind === 'thug' ? thugFrames[v.who as ThugKind] : null;
+      showFrame(v, tf ? tf.ko : d.age < .22 ? frames.hurt : frames.ko); // recoil from the blow, then dizzy knockout
       if (d.age < .09) v.sprite.scale.set(1.4 * v.facing, .6, 1); // impact squash
       else {
         const k = d.age - .09; v.sprite.scale.set(.9 * v.facing, 1.12, 1);
@@ -477,7 +527,7 @@ function animateLeaving(dt: number, time: number) {
       if (d.age > .75) { disposeView(v); leaving.splice(i, 1); }
     } else {
       // Attack: lunge at the player with a big swing, then duck away.
-      showFrame(v, frames.windup);
+      showFrame(v, v.kind === 'thug' ? thugFrames[v.who as ThugKind].attack : frames.windup);
       const k = Math.min(1, d.age / .16);
       v.group.position.z += dt * (d.age < .16 ? 5 : -2); v.body.rotation.z = v.facing * .35 * k;
       v.sprite.scale.set((1 + .25 * k) * v.facing, 1 + .2 * k, 1);
@@ -581,9 +631,17 @@ function drainEvents(at?: { x: number; y: number }) {
     const v = views.get(e.id); const p = at ?? (v ? toScreen({ x: v.group.position.x, y: v.group.position.y + 1.2, z: v.group.position.z }) : { x: innerWidth / 2, y: innerHeight / 2 });
     if (e.type === 'hurt' && e.amount) { const t = game.actors.find(a => a.id === e.id) ?? (v ? { x: v.group.position.x, y: v.group.position.y, z: v.group.position.z } : null); if (t) { const h = v ? barAnchor(v) : { x: t.x, y: t.y + 2, z: t.z ?? 0 }; damageNumbers.push({ ...h, amount: e.amount, age: 0, big: e.amount > 10 }); } if (v) v.flash = 1; }
     if (e.type === 'ko' || e.type === 'smash') { exits.set(e.id, 'ko'); if (e.type === 'ko') sound('ko'); }
+    if (e.type === 'ko' && e.who) callout(['ШМЯК!', 'БРЫСЬ!', 'ПШЁЛ!'][e.id % 3], p.x, p.y - 20, 'pop');
     if (e.type === 'ko' && e.combo >= 2) callout(`КОМБО ×${e.combo} ${COMBO_WORDS[Math.min(e.combo, 5)]}`, p.x, p.y - 70, 'combo');
     if (e.type === 'attack') { exits.set(e.id, 'attack'); sound('attack'); callout('БАЦ! −♥', p.x, p.y, 'bad'); if (motion()) shake = .22; }
     if (e.type === 'dog') { if (v) v.sad = 2.4; sound('dog'); callout(game.ult.phase === 'pour' ? 'ПЁС ОСКОРБЛЁН!' : 'ПСА НЕ ТРОГАЙ!', p.x, p.y - 60, 'bad'); }
+    if (e.type === 'offend') { if (v) v.flash = 1; sound('huff'); callout(e.text ?? 'ХАМ!', p.x, p.y - 60, 'bad'); if (motion()) shake = Math.max(shake, .12); }
+    if (e.type === 'nuisance') {
+      exits.set(e.id, 'attack');
+      if (e.who === 'rat') { sound('steal'); callout('КРЫСА СПЁРЛА СИЛЫ! −35', p.x, p.y, 'bad'); }
+      else if (e.who === 'gang') { sound('splat'); splat(); callout('ПЛЮХ!', innerWidth / 2, innerHeight * .4, 'bad'); }
+      else { sound('zing'); callout('ЩЁЛК! −♥', p.x, p.y, 'bad'); if (motion()) shake = .2; }
+    }
     if (e.type === 'ult') startUlt();
     if (e.type === 'land' && e.point) sound('thud');
     if (e.type === 'gag') playGag(e);
@@ -606,6 +664,21 @@ function release(s: Swing) {
   const f = game.launch({ x: from.x, y: from.y, z: from.z }, s.shot.point);
   s.outcome = 'throw'; strikes.push({ action: 'grab', outcome: 'throw', kind: 'flight', id: f?.id ?? null, staminaBefore: s.staminaBefore, staminaAfter: s.staminaAfter }); if (strikes.length > 20) strikes.shift();
   sound('toss'); renderUi();
+}
+/** Pigeon-gang splats on the 'lens': big white blobs that slowly slide down and fade (viewport fractions). */
+const splats: { x: number; y: number; r: number; age: number; seed: number }[] = [];
+function splat() { for (let i = 0; i < 3; i++) splats.push({ x: .25 + Math.random() * .5, y: .2 + Math.random() * .4, r: .09 + Math.random() * .06, age: 0, seed: Math.random() * 10 }); while (splats.length > 6) splats.shift(); }
+function drawSplats(g: CanvasRenderingContext2D, W: number, H: number, dt: number, ink: number) {
+  const m = Math.min(W, H);
+  for (let i = splats.length - 1; i >= 0; i--) {
+    const s = splats[i]; s.age += dt; if (s.age > 3.2) { splats.splice(i, 1); continue; }
+    const x = s.x * W, y = s.y * H + s.age * m * .03, r = s.r * m;
+    g.save(); g.globalAlpha = Math.min(1, (3.2 - s.age) * 1.5) * .93; g.translate(x, y); g.beginPath();
+    for (let k = 0; k <= 16; k++) { const a = k / 16 * Math.PI * 2, rr = r * (k % 2 ? .62 + .2 * Math.sin(s.seed + k) : 1 + .15 * Math.sin(s.seed * 2 + k)); g.lineTo(Math.cos(a) * rr, Math.sin(a) * rr); }
+    g.closePath(); g.fillStyle = '#f4f2e6'; g.fill(); g.lineWidth = Math.max(2, ink * .4); g.strokeStyle = '#151715'; g.stroke();
+    g.beginPath(); g.ellipse(r * .1, r * .05, r * .32, r * .26, 0, 0, Math.PI * 2); g.fillStyle = '#9a9a8a'; g.fill();
+    g.beginPath(); g.ellipse(-r * .3, -r * .3, r * .14, r * .08, -.6, 0, Math.PI * 2); g.fillStyle = '#ffffff'; g.fill(); g.restore();
+  }
 }
 /** Screen-space comic bursts not tied to the glove (thrown-prop impacts land wherever the prop does). */
 const pops: { key: string; x: number; y: number; size: number; age: number }[] = [];
@@ -794,7 +867,7 @@ document.addEventListener('freeze', suspendPage);
 addEventListener('pagehide', suspendPage);
 
 function button(id: string, handler: () => void) { document.getElementById(id)?.addEventListener('click', () => { unlockAudio(); sound('ui'); handler(); }); }
-function startLevel(level: number) { if (game.start(level)) { for (const c of laundry) c.visible = true; drops2.length = 0; pan = 0; panVel = 0; lastMode = ''; damageNumbers.length = 0; pops.length = 0; shards.length = 0; } renderUi(); }
+function startLevel(level: number) { if (game.start(level)) { for (const c of laundry) c.visible = true; drops2.length = 0; pan = 0; panVel = 0; lastMode = ''; damageNumbers.length = 0; pops.length = 0; shards.length = 0; splats.length = 0; } renderUi(); }
 function chrome() { return '<div class="topline"><div class="brand"><span>↗</span> ДВОР ДА ДЕЛО</div><div class="tag">РУКИ ДЛИННЕЕ. ДЕНЬ ЛУЧШЕ.</div></div>'; }
 
 function renderUi() {
@@ -845,7 +918,7 @@ function toScreen(p: Vec3) { const v = new THREE.Vector3(p.x, p.y, p.z).project(
  * occlusion respected). Published for accessibility tooling and tests; null when fully behind cover.
  */
 function clickablePoint(t: Actor) {
-  const c = BODY[t.kind]; const p = pose(game.level, t, motion()); const [l, r, b, tp] = c.inset;
+  const c = bodyOf(t.kind, t.who); const p = pose(game.level, t, motion()); const [l, r, b, tp] = t.kind === 'enemy' && t.skin ? SKIN_INSET[t.skin] : c.inset;
   for (const fy of [.8, .65, .9, .5, .35]) for (const fx of [.5, .38, .62]) {
     const world = { x: p.x - c.w / 2 + c.w * (l + (r - l) * fx), y: p.y + c.h * (b + (tp - b) * fy), z: p.z };
     const s = toScreen(world); const shot = shotAt(new THREE.Vector2(s.x / innerWidth * 2 - 1, 1 - s.y / innerHeight * 2));
@@ -1087,6 +1160,7 @@ function drawArm(time: number) {
       g.save(); g.translate(arm.glove.x, arm.glove.y - arm.r * .5); g.rotate(motion() ? Math.sin(time * 2) * .07 : 0); g.drawImage(img, -w / 2, -h * .8, w, h); g.restore();
     }
   }
+  drawSplats(g, W, H, dt, ink); // on the 'lens', over everything but the HUD
 }
 
 const clock = new THREE.Clock();
@@ -1125,6 +1199,10 @@ function frame() {
   if (motion()) for (const door of swinging) door.rotation.y = door.userData.swing * (.35 + .3 * Math.sin(runtime * 2.3 + door.userData.swing));
 
   resizeCameraShake(dt);
+  { // Thugs pop in close to wherever the camera looks: share its x, depth and the visible half-width at thug depth.
+    const d = THUG.depth, half = Math.tan(camera.fov * Math.PI / 360) * d * camera.aspect;
+    game.cam = { x: rest.x || pan, z: camera.position.z, half: Math.max(1.2, half - .6) };
+  }
   renderer.info.reset();
   renderer.clear();
   renderer.render(scene, camera);
@@ -1152,7 +1230,7 @@ if (import.meta.env.DEV) {
       /** Sample the full sprite hitbox of an actor and report what each screen point would actually hit. */
       samples(id: number) {
         const t = game.actors.find(v => v.id === id); if (!t) return [];
-        const c = BODY[t.kind], p = pose(game.level, t, motion()), [l, r, b, tp] = c.inset, out = [];
+        const c = bodyOf(t.kind, t.who), p = pose(game.level, t, motion()), [l, r, b, tp] = c.inset, out = [];
         for (let fy = .05; fy < 1; fy += .1) for (let fx = .1; fx < 1; fx += .2) {
           const s = toScreen({ x: p.x - c.w / 2 + c.w * (l + (r - l) * fx), y: p.y + c.h * (b + (tp - b) * fy), z: p.z });
           const shot = shotAt(new THREE.Vector2(s.x / innerWidth * 2 - 1, 1 - s.y / innerHeight * 2));
@@ -1161,6 +1239,7 @@ if (import.meta.env.DEV) {
         return out;
       },
       flights: () => game.flights.map(f => ({ id: f.id, kind: f.kind, pos: f.pos, struck: f.struck })),
+      views: () => [...views.entries()].map(([id, v]) => ({ id, kind: v.kind, who: v.who ?? null, frame: v.frame ?? null, pos: v.group.position.toArray().map(n => +n.toFixed(2)), scale: v.sprite.scale.toArray().map(n => +n.toFixed(2)), visible: v.group.visible })),
       swing: () => swing ? { phase: swing.phase, resolved: swing.resolved, outcome: swing.outcome ?? null, shot: swing.shot.kind } : null,
       setTimeScale(v: number) { timeScale = v; },
       setPan(x: number) { pan = clampPan(game.level, x); resizeCameraShake(0); return pan; },

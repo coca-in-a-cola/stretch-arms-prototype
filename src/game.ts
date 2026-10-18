@@ -4,18 +4,22 @@ import { PROPS, REACH_COST } from './props';
 import { launch, step, type Flight, type Impact } from './throw';
 import type { Hittable } from './aim';
 import { BET, BET_CARDS } from './ult';
+import { FRIEND_LINES, FRIEND_MAD, FRIEND_PENALTY, THUG, THUG_NUISANCE, THUG_STEAL, type FriendKind, type ThugKind } from './friends';
 
 export type Mode = 'menu' | 'select' | 'play' | 'pause' | 'result';
-export type Kind = 'enemy' | 'dog' | PropKind;
+export type Kind = 'enemy' | 'dog' | 'friend' | 'thug' | PropKind;
 export interface Actor {
   id: number; kind: Kind; x: number; y: number; z?: number; slot?: number; layer?: Layer; skin?: Skin; age: number; deadline: number;
   /** Ult soaking, 0..1 (1 = knocked out). */ wet?: number;
   /** Enemies: health left / at spawn, and game time of the last damage (drives the health bar). */
   hp?: number; maxHp?: number; hurtAt?: number;
+  /** Friends: who, which plan of the level, seconds left being offended (they freeze). Thugs: who, edge side, entrance. */
+  who?: FriendKind | ThugKind; plan?: number; mad?: number; side?: -1 | 1; from?: 'edge' | 'manhole';
 }
 /** Things that just happened, drained by the renderer to play attack / knockout / sad-dog / ult animations. */
 export interface GameEvent {
-  type: 'attack' | 'ko' | 'dog' | 'smash' | 'ult' | 'ultEnd' | 'hatBack' | 'hurt' | 'land' | 'shatter' | 'thud' | 'gag';
+  type: 'attack' | 'ko' | 'dog' | 'smash' | 'ult' | 'ultEnd' | 'hatBack' | 'hurt' | 'land' | 'shatter' | 'thud' | 'gag' | 'offend' | 'nuisance';
+  /** 'offend' / 'nuisance' / thug 'ko': which friend or thug; 'offend' also carries the line it shouts. */ who?: FriendKind | ThugKind; text?: string;
   /** 'gag': which joke fired, the gag's id (its box / cover) and, for the laundry, the bully it landed on (id). */ gag?: GagKind; gagId?: string;
   id: number; combo: number; /** Damage dealt ('hurt'). */ amount?: number;
   /** World point of a landing / shatter / thrown-prop impact, and the prop kind. */ point?: Vec3; prop?: PropKind;
@@ -74,14 +78,17 @@ export class Game {
   /** Gags: how many piano riffs played (each repeat varies) and pieces of washing left on the line. */
   riffs = 0; laundry = 5; progress: Progress; won = false; defeated = 0; spawned = 0; spawnClock = 0; nextId = 1;
   message = 'Двор ждёт своих героев';
+  /** Where the camera looks (set by the renderer each frame): thugs pop in close to it. `half` = visible half-width at thug depth. */
+  cam = { x: 0, z: 9.5, half: 2.6 }; thugClock = 0; thugs = 0;
   constructor(progress = freshProgress(), private save: (p: Progress) => void = () => {}) { this.progress = progress; }
   get layout() { return LEVELS[this.level]; }
   get goal() { return this.layout.goal; }
   start(level: number) {
     if (level > this.progress.unlocked) return false;
-    this.level = level; this.hp = 5; this.stamina = 100; this.score = 0; this.combo = 0; this.elapsed = 0; this.held = null; this.actors = []; this.events = []; this.flights = []; this.riffs = 0; this.laundry = 5; this.won = false; this.defeated = 0; this.spawned = 0; this.spawnClock = 0; this.nextId = 1; this.mode = 'play'; this.message = this.layout.look === 'bar' ? 'Бар «Длинные руки». Ведите себя прилично.' : 'Улица большая — крути камеру к краям!';
+    this.level = level; this.hp = 5; this.stamina = 100; this.score = 0; this.combo = 0; this.elapsed = 0; this.held = null; this.actors = []; this.events = []; this.flights = []; this.riffs = 0; this.laundry = 5; this.won = false; this.defeated = 0; this.spawned = 0; this.spawnClock = 0; this.nextId = 1; this.thugClock = 0; this.thugs = 0; this.mode = 'play'; this.message = this.layout.look === 'bar' ? 'Бар «Длинные руки». Ведите себя прилично.' : 'Улица большая — крути камеру к краям!';
     this.ult = { phase: 'none', t: 0, meter: 0, hat: 0 }; this.dogSoak = 0; this.hatRest = null;
     for (const p of this.layout.props) this.actors.push({ id: this.nextId++, kind: p.kind, x: p.x, y: p.y, z: p.z, layer: layerAt(p.z), age: 0, deadline: Infinity });
+    this.layout.friends.forEach((f, plan) => this.actors.push({ id: this.nextId++, kind: 'friend', who: f.who, plan, x: f.x0, y: f.y, z: f.z, layer: layerAt(f.z), age: 0, deadline: Infinity }));
     this.spawn(); this.placeHat(); return true;
   }
   get ultActive() { return this.ult.phase === 'intro' || this.ult.phase === 'pour'; }
@@ -161,7 +168,9 @@ export class Game {
     }
     this.elapsed += dt; this.stamina = Math.min(100, this.stamina + dt * 21); this.spawnClock += dt;
     for (const t of [...this.actors]) {
+      if (t.kind === 'friend' && t.mad) { t.mad = Math.max(0, t.mad - dt); continue; } // offended: frozen on the spot
       t.age += dt;
+      if (t.kind === 'thug' && t.age >= THUG.strike) { this.nuisance(t); continue; }
       // Mid-pour nobody gets a swing in: they are too busy being disgusted.
       if (pouring && t.kind === 'enemy') t.age = Math.min(t.age, Math.max(t.age - dt, t.deadline - 1.0));
       if (t.kind === 'enemy' && t.age >= t.deadline) { this.actors = this.actors.filter(v => v.id !== t.id); this.hp--; this.combo = 0; this.defeated++; this.events.push({ type: 'attack', id: t.id, combo: 0 }); this.message = 'Прилетело! Следи за замахом.'; }
@@ -169,6 +178,35 @@ export class Game {
     if (this.hp <= 0) { this.finish(false); return; }
     if (this.defeated >= this.goal) { this.finish(true); return; }
     if (this.spawnClock >= 1.55) { this.spawnClock = 0; this.spawn(); }
+    if (this.layout.thugs && !pouring) { this.thugClock += dt; if (this.thugClock >= (this.thugs ? THUG.every : THUG.first)) { this.thugClock = 0; this.spawnThug(); } }
+  }
+  /** A close-range thug pops in right in front of the camera: from a screen edge or out of a manhole. */
+  spawnThug() {
+    const live = this.actors.filter(t => t.kind === 'thug').length; if (live >= (this.elapsed > 30 ? 2 : 1)) return null;
+    const n = this.thugs++, who = (['rat', 'gang', 'kid'] as const)[n % 3], side: -1 | 1 = n % 2 ? 1 : -1, from = n % 3 === 1 ? 'manhole' as const : 'edge' as const;
+    const z = this.cam.z - THUG.depth, x = this.cam.x + side * this.cam.half * (from === 'manhole' ? .3 : .62);
+    const t: Actor = { id: this.nextId++, kind: 'thug', who, side, from, x, y: 0, z, layer: 'foreground', age: 0, deadline: THUG.strike, hp: 1, maxHp: 1 };
+    this.actors.push(t); this.message = from === 'manhole' ? 'Из люка лезет шпана — бей сразу!' : 'Шпана под носом — бей сразу!'; return t;
+  }
+  /** Ignored too long: the thug does its quick dirty trick and runs off. */
+  private nuisance(t: Actor) {
+    this.actors = this.actors.filter(v => v.id !== t.id); const n = THUG_NUISANCE[t.who as ThugKind];
+    if (n.what === 'stamina') this.stamina = Math.max(0, this.stamina - THUG_STEAL);
+    if (n.what === 'heart') { this.hp--; this.combo = 0; }
+    this.events.push({ type: 'nuisance', id: t.id, combo: this.combo, who: t.who }); this.message = n.line;
+  }
+  /** One punch (or any thrown prop) knocks a thug out. Not a bully for the goal, but it feeds the combo. */
+  private thugKo(t: Actor, throwing = false) {
+    this.actors = this.actors.filter(v => v.id !== t.id); this.combo++; this.score += 60 + Math.min(this.combo - 1, 9) * 15;
+    this.events.push({ type: 'ko', id: t.id, combo: this.combo, who: t.who }); this.message = throwing ? 'Шпану — с одного броска!' : ['ШМЯК! Шпана — в нокауте.', 'Мелочь, а приятно!', 'Брысь!'][this.combo % 3];
+  }
+  /** Hitting a friend: a heart and points, and they stay offended (frozen) for a while. */
+  private friendHit(t: Actor) {
+    if (t.mad) { this.message = 'Он и так обижен! Оставь в покое.'; return; }
+    const lines = FRIEND_LINES[t.who as FriendKind], text = lines[this.events.length % lines.length];
+    this.score = Math.max(0, this.score - FRIEND_PENALTY); this.hp = Math.max(0, this.hp - 1); this.combo = 0; t.mad = FRIEND_MAD;
+    this.events.push({ type: 'offend', id: t.id, combo: 0, who: t.who, text }); this.message = `${text} −${FRIEND_PENALTY} и сердце.`;
+    if (!this.hp) this.finish(false);
   }
   /** Pays for a swing up front. Every launched swing costs stamina, whatever it ends up hitting. */
   spend(action: Action): boolean {
@@ -197,6 +235,8 @@ export class Game {
     if (hit.kind === 'cover') { this.combo = 0; this.message = throwing ? 'Бросок в укрытие. Жди, пока высунется!' : 'ТУК! Укрытие. Бей, когда высунется.'; return 'cover'; }
     if (!t) { this.combo = 0; this.message = hit.kind === 'scenery' ? 'Только стену поцарапал.' : throwing ? 'Бросок в никуда.' : 'Мимо! Чистый промах.'; return 'miss'; }
     if (t.kind === 'dog') { this.dogHit(t); return 'protected'; }
+    if (t.kind === 'friend') { this.friendHit(t); return 'protected'; }
+    if (t.kind === 'thug') { if (action === 'punch' || throwing) { this.thugKo(t, throwing); return throwing ? 'throw' : 'hit'; } this.combo = 0; this.message = 'Шпану — кулаком!'; return 'miss'; }
     if (t.kind === 'hat' && !(action === 'grab' && !throwing)) { this.combo = 0; this.message = 'Шляпу не бьют. Шляпу берут.'; return 'miss'; }
     if (t.kind !== 'enemy') {
       this.actors = this.actors.filter(v => v.id !== t.id);
@@ -227,6 +267,8 @@ export class Game {
           const t = typeof impact.id === 'number' ? this.actors.find(v => v.id === impact.id) : undefined;
           if (t?.kind === 'enemy') { if (spec.damage) this.hurt(t, spec.damage, true); else { this.combo = 0; this.message = 'Шляпу — не в задиру!'; } }
           else if (t?.kind === 'dog') this.dogHit(t);
+          else if (t?.kind === 'friend') this.friendHit(t);
+          else if (t?.kind === 'thug') this.thugKo(t, true);
           else if (!(typeof impact.id === 'string' && this.gag(impact.id, impact.point))) { this.combo = 0; this.message = impact.kind === 'cover' ? 'Бросок в укрытие. Жди, пока высунется!' : 'Только стену задел.'; }
           if (spec.breakable) { this.flights = this.flights.filter(v => v !== f); this.events.push({ type: 'shatter', id: f.id, combo: this.combo, point: impact.point, prop: f.kind }); break; }
         } else {
@@ -279,7 +321,7 @@ export class Game {
     if (this.mode !== 'play') return 'blocked';
     if (!costPaid && !this.spend(action)) return 'tired';
     const t = this.actors.find(v => v.id === id);
-    return this.resolve(action, t ? { kind: t.kind === 'enemy' ? 'enemy' : t.kind === 'dog' ? 'dog' : 'prop', id } : { kind: 'whiff' });
+    return this.resolve(action, t ? { kind: t.kind === 'enemy' || t.kind === 'dog' || t.kind === 'friend' || t.kind === 'thug' ? t.kind : 'prop', id } : { kind: 'whiff' });
   }
   get canUlt() { return this.ult.phase === 'none'; }
   get pouring() { return this.ult.phase === 'pour';
