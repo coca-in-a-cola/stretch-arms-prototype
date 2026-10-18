@@ -46,7 +46,7 @@ describe('the mole', () => {
 
 describe('friendly characters', () => {
   test('every level has the mole plus at least two other friends; the street has granny and the postman pigeon, the bar a kitten and a sleeping drunk', () => {
-    expect(LEVELS[1].friends.map(f => f.who).sort()).toEqual(['drunk', 'kitten', 'mole']);
+    expect(LEVELS[1].friends.map(f => f.who).sort()).toEqual(['bartender', 'drunk', 'kitten', 'mole']);
     expect(LEVELS[2].friends.map(f => f.who).sort()).toEqual(['granny', 'mole', 'pigeon']);
   });
   for (const [level, make] of [[1, bar], [2, street]] as const) for (const who of LEVELS[level].friends.map(f => f.who)) {
@@ -77,6 +77,21 @@ describe('friendly characters', () => {
     expect(dogAscent(ASCENT.period - .1)).toBe(0);
     const g = bar(), dog = g.actors.find(t => t.kind === 'dog')!; dog.age = ASCENT.start + ASCENT.up + 1;
     expect(pose(1, dog).y).toBeCloseTo(ASCENT.height); // the hitbox ascends too: still a protected dog
+  });
+  test('bartender is friendly and penalized', () => {
+    const g = bar();
+    const bartender = g.actors.find(t => t.kind === 'friend' && t.who === 'bartender')!;
+    expect(bartender).toBeTruthy();
+    expect(bartender.z).toBeCloseTo(-3.15);
+    expect(LEVELS[1].slots.some(s => s.skin === 'weasel')).toBe(false);
+    g.score = 300; g.combo = 2; g.spend('punch');
+    expect(g.resolve('punch', { kind: 'friend', id: bartender.id })).toBe('protected');
+    expect(g.hp).toBe(4);
+    expect(g.score).toBe(300 - FRIEND_PENALTY);
+    expect(g.combo).toBe(0);
+    const e = g.events.find(v => v.type === 'offend' && v.who === 'bartender')!;
+    expect(e).toBeTruthy();
+    expect(e.text).toBeTruthy();
   });
 });
 

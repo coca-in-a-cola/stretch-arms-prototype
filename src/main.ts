@@ -264,6 +264,7 @@ const frames = {
 /** Friends (must not hit): calm / offended / furious, plus the mole's lantern pop. Thugs: appear / attack / knocked out. */
 const friendFrames = Object.fromEntries((['granny', 'kitten', 'pigeon', 'drunk'] as const).map(w => [w, { idle: spriteTexture(`gen_${w}_idle.png`, 'dog'), mad: spriteTexture(`gen_${w}_mad.png`, 'dog'), fury: spriteTexture(`gen_${w}_fury.png`, 'dog') }])) as Record<FriendKind, { idle: THREE.Texture; mad: THREE.Texture; fury: THREE.Texture; lantern?: THREE.Texture }>;
 { const hurt = spriteTexture('gen_mole_hurt.png', 'dog'); friendFrames.mole = { idle: spriteTexture('gen_mole_up.png', 'dog'), lantern: spriteTexture('gen_mole_lantern.png', 'dog'), mad: hurt, fury: hurt }; }
+{ const weasel = spriteTexture('gen_weasel.png', 'dog'); friendFrames.bartender = { idle: weasel, mad: weasel, fury: weasel }; }
 const thugFrames = Object.fromEntries((['rat', 'gang', 'kid'] as const).map(w => [w, { appear: spriteTexture(`gen_${w}_appear.png`, 'enemy'), attack: spriteTexture(`gen_${w}_attack.png`, 'enemy'), ko: spriteTexture(`gen_${w}_ko.png`, 'enemy') }])) as Record<ThugKind, { appear: THREE.Texture; attack: THREE.Texture; ko: THREE.Texture }>;
 for (const t of [...Object.values(textures), ...Object.values(frames), ...Object.values(skins), ...Object.values(friendFrames).flatMap(f => Object.values(f)), ...Object.values(thugFrames).flatMap(f => Object.values(f))]) { t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4; }
 const frameName = new Map<THREE.Texture, string>([[textures.enemy, 'idle'], [textures.dog, 'sit'], ...Object.entries(frames).map(([k, t]) => [t, k] as [THREE.Texture, string]),
@@ -416,7 +417,7 @@ function disposeView(v: ActorView) { actorGroup.remove(v.group); v.group.travers
 const menuActors: Actor[] = [
   { id: -1, kind: 'enemy', skin: 'walrus', x: -2.55, y: 0, z: 2.2, age: 1, deadline: 60 },
   { id: -2, kind: 'dog', x: .2, y: 0, z: -.7, age: 1, deadline: Infinity },
-  { id: -3, kind: 'enemy', skin: 'weasel', x: 1.9, y: .3, z: -3.15, age: 1, deadline: 60 },
+  { id: -3, kind: 'friend', who: 'bartender', x: .3, y: .3, z: -3.15, age: 1, deadline: 60 },
 ];
 const visibleActors = () => game.mode === 'menu' || game.mode === 'select' ? menuActors : game.actors;
 

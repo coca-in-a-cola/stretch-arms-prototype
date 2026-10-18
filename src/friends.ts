@@ -2,7 +2,7 @@
 // rules, hit-testing, rendering and unit tests — like the halo dog, what you see is exactly what the fist can hit.
 import type { Vec3 } from './aim';
 
-export type FriendKind = 'mole' | 'granny' | 'kitten' | 'pigeon' | 'drunk';
+export type FriendKind = 'mole' | 'granny' | 'kitten' | 'pigeon' | 'drunk' | 'bartender';
 export type ThugKind = 'rat' | 'gang' | 'kid';
 export interface CharBody { w: number; h: number; inset: readonly [number, number, number, number]; }
 
@@ -13,6 +13,7 @@ export const FRIEND_BODY: Record<FriendKind, CharBody> = {
   kitten: { w: .9, h: 1.125, inset: [.113, .887, .006, .7] },
   pigeon: { w: .9, h: 1.125, inset: [.151, .849, .006, .69] },
   drunk: { w: 1.4, h: 1.75, inset: [.2, .8, .006, .85] },
+  bartender: { w: 1.52, h: 1.9, inset: [.22, .78, .03, .78] },
 };
 export const THUG_BODY: Record<ThugKind, CharBody> = {
   rat: { w: 1.8, h: 2.25, inset: [.17, .83, .006, .63] },
@@ -32,6 +33,7 @@ export const FRIEND_LINES: Record<FriendKind, readonly string[]> = {
   kitten: ['ПФФФ! МЯУ!!', 'ШШШ! НАХАЛ!', 'МЯ-А-АУ?!'],
   pigeon: ['ПИСЬМА ПОМЯЛ!', 'ЖАЛОБА ПОЧТОЙ!', 'КУРЛЫ-ХАМ!'],
   drunk: ['ЧЕГО-О?! ИК!', 'КТО ТУТ ДЕРЁТСЯ?! ИК!', 'Я НЕ СПЛЮ! ИК!'],
+  bartender: ['ПОСУДУ НЕ БЕЙ!', 'В МОЁМ БАРЕ НЕ ДРАТЬСЯ!', 'ЗА СТОЙКУ НЕ ЗАХОДИ!'],
 };
 
 /** Mole holes: hidden underground, rises out of its mound, peeks around, digs back down, pops up at the next hole. */

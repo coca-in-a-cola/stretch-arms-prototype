@@ -135,10 +135,10 @@ const bar: LevelLayout = {
   ],
   slots: [
     { x: -2.55, y: 0, z: 2.2, layer: 'foreground', hideX: -2.55, hideY: -1.25, skin: 'walrus' },
-    { x: -1.1, y: .3, z: -3.15, layer: 'midground', hideX: -1.1, hideY: -.9, skin: 'weasel' },
+    { x: -1.1, y: .3, z: -3.15, layer: 'midground', hideX: -1.1, hideY: -.9, skin: 'walrus' },
     { x: 2.55, y: 0, z: 2.3, layer: 'foreground', hideX: 3.0, hideY: -1.15, skin: 'walrus' },
     { x: 4.6, y: 0, z: -7.85, layer: 'background', hideX: 6.7, hideY: 0, skin: 'bulldog' },
-    { x: 1.9, y: .3, z: -3.15, layer: 'midground', hideX: 1.9, hideY: -.9, skin: 'weasel' },
+    { x: 1.9, y: .3, z: -3.15, layer: 'midground', hideX: 1.9, hideY: -.9, skin: 'bulldog' },
   ],
   order: [0, 1, 2, 3, 4],
   dogs: [{ x: .2, y: 0, z: -.7 }],
@@ -158,6 +158,7 @@ const bar: LevelLayout = {
     { who: 'mole', x0: 0, x1: 0, y: 0, z: 0, period: 0, spots: [{ x: 2.3, z: -1.3 }, { x: .1, z: 1.7 }, { x: -1.25, z: -1.3 }, { x: -.75, z: 2.6 }, { x: 3.7, z: -.9 }] },
     { who: 'kitten', x0: -2.5, x1: 2.75, y: 1.15, z: -2.25, period: 17 },
     { who: 'drunk', x0: 4.75, x1: 4.75, y: 0, z: 1.75, period: 0 },
+    { who: 'bartender', x0: .3, x1: .3, y: .3, z: -3.15, period: 0 },
   ],
 };
 

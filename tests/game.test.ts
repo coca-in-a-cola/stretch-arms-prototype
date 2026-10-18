@@ -118,7 +118,8 @@ describe('level 3: the secret bar', () => {
 
   test('bar patrons peek from their cover; mug / whiskey are the throwables; the hat sits on its stool', () => {
     const g = ready(); for (let i = 0; i < 4; i++) g.spawn();
-    expect(new Set(g.actors.filter(t => t.kind === 'enemy').map(t => t.skin))).toEqual(new Set(['walrus', 'weasel', 'bulldog']));
+    expect(new Set(g.actors.filter(t => t.kind === 'enemy').map(t => t.skin))).toEqual(new Set(['walrus', 'bulldog']));
+    expect(g.actors.some(t => t.kind === 'friend' && t.who === 'bartender')).toBe(true);
     expect(g.actors.some(t => t.kind === 'mug' || t.kind === 'whiskey')).toBe(true);
     expect(g.actors.filter(t => t.kind === 'hat')).toHaveLength(1);
     expect(g.actors.some(t => t.kind === 'dog')).toBe(true);
