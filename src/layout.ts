@@ -12,11 +12,17 @@ export interface Cover { id: string; look: CoverLook; layer: Layer; min: Vec3; m
 /** Enemy spawn point behind a cover. `hide` is where the sprite waits fully occluded; it slides/rises to `x,y`. */
 export interface Slot { x: number; y: number; z: number; layer: Layer; hideX: number; hideY: number; skin?: Skin; }
 export interface PlacedProp { kind: PropKind; x: number; y: number; z: number; }
+/** Environment jokes: hit them with a fist or a thrown prop. A gag without a box reuses the cover with its id. */
+export type GagKind = 'piano' | 'cuckoo' | 'lamp' | 'bell' | 'laundry';
+export interface Gag { id: string; kind: GagKind; min?: Vec3; max?: Vec3; }
+const gagBox = (id: string, kind: GagKind, cx: number, cy: number, cz: number, w: number, h: number, d: number): Gag =>
+  ({ id, kind, min: { x: cx - w / 2, y: cy - h / 2, z: cz - d / 2 }, max: { x: cx + w / 2, y: cy + h / 2, z: cz + d / 2 } });
 export interface LevelLayout {
   name: string; look: 'bar' | 'street';
   /** Half-width of the camera pan range (0 = a single screen). */
   pan: number;
   covers: Cover[]; slots: Slot[]; order: number[]; dogs: Vec3[]; deadline: number; goal: number;
+  gags: Gag[];
   /** Cap on enemies out at once (wide levels). */
   maxAlive?: number;
   /** Throwables scattered over the map from the start (floor, counter, cover tops). They never respawn. */
@@ -137,6 +143,8 @@ const bar: LevelLayout = {
     { kind: 'stool', x: -.95, y: 0, z: 3.9 }, { kind: 'spittoon', x: 1.95, y: 0, z: 4.0 }, { kind: 'plunger', x: -1.6, y: 0, z: 1.1 },
     { kind: 'mug', x: .5, y: 0, z: 1.05 }, { kind: 'whiskey', x: -4.4, y: 0, z: 1.5 }, { kind: 'stool', x: 4.3, y: 0, z: .9 }, { kind: 'eggs', x: -3.3, y: 0, z: -.3 },
   ],
+  // The piano plays ragtime, the cuckoo clock on the back-room wall insults you, the hanging lamps swing and flicker.
+  gags: [{ id: 'piano', kind: 'piano' }, gagBox('gag-cuckoo', 'cuckoo', 6.1, 2.6, -7.12, .66, .82, .12), gagBox('gag-lamp-0', 'lamp', -3, 5.7, -3.2, 1.1, .6, 1.1), gagBox('gag-lamp-1', 'lamp', 2.5, 5.7, -3.2, 1.1, .6, 1.1)],
   hat: { x: .95, y: .78, z: 3.45 },
   landing: { cover: 'counter', band: .4 },
 };
@@ -149,6 +157,8 @@ const street: LevelLayout = {
   // Yard slots are 0..5, alley slots 6..12: alternate so both ends of the street stay busy.
   order: [0, 6, 4, 9, 2, 7, 3, 11, 1, 8, 5, 12, 10],
   dogs: [{ x: .45 + YARD_X, y: 0, z: -.85 }, { x: 2.3 + ALLEY_X, y: 0, z: -1.25 }],
+  // The alley's street lamps ring like bells; the yard's washing line drops underwear on a bully below.
+  gags: [gagBox('gag-bell-0', 'bell', ALLEY_X - 3.5, 5.75, -5, 1, .7, .8), gagBox('gag-bell-1', 'bell', ALLEY_X + 3.5, 5.75, -5, 1, .7, .8), gagBox('gag-laundry', 'laundry', YARD_X, 3.85, -4.5, 12, 1.2, .2)],
   props: [
     // Yard (left half)
     { kind: 'bottle', x: -8.6, y: 0, z: 3.8 }, { kind: 'barrel', x: -12.7, y: 0, z: 3.6 }, { kind: 'melon', x: -7.2, y: 0, z: 1.2 },
@@ -216,6 +226,7 @@ export function bodyBox(kind: BodyKind, at: Vec3, skin?: Skin): { min: Vec3; max
 /** Everything the fist can collide with at this moment: live actors + static covers. */
 export function hittables(level: number, actors: readonly { id: number; kind: BodyKind | 'enemy' | 'dog'; slot?: number; skin?: Skin; x: number; y: number; z?: number; age: number; deadline?: number }[], motion = true, scenery: Hittable[] = []): Hittable[] {
   const out: Hittable[] = LEVELS[level].covers.map(c => ({ id: c.id, kind: 'cover', min: c.min, max: c.max }));
+  for (const g of LEVELS[level].gags) if (g.min && g.max) out.push({ id: g.id, kind: 'cover', min: g.min, max: g.max });
   for (const t of actors) {
     const b = bodyBox(t.kind, pose(level, t, motion), t.kind === 'enemy' ? t.skin : undefined);
     // The walking dog frame is a low side view: its hitbox drops to the drawn back/ears.

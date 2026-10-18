@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { Game, loadProgress, resultActions, healthBarAlpha, PROGRESS_KEY, costOf, ULT, type Action, type Kind, type Actor, type Outcome } from './game';
+import { type GameEvent, Game, loadProgress, resultActions, healthBarAlpha, PROGRESS_KEY, costOf, ULT, type Action, type Kind, type Actor, type Outcome } from './game';
 import { resolveShot, type Hittable, type Shot, type Vec3 } from './aim';
 import { LEVELS, BODY, SKIN_INSET, WINDUP, YARD_X, ALLEY_X, LAST_LEVEL, clampPan, pose, dogWalk, hittables, cameraFor, onLanding, type Cover, type BodyKind, type Skin } from './layout';
 import './style.css';
@@ -7,9 +7,10 @@ import { makeStreet } from './street';
 import { makeBar } from './bar';
 import { Stream, cardAt } from './ult';
 import { PROPS, PROP_KINDS } from './props';
+import { ragtimeScore } from './ragtime';
 import { LOOKS, greyscaleWorld, greyCanvas, greyColor } from './palette';
 import { armMetrics, restPose, punchPose, sideFor, drawArm as inkArm, type Avoid, type Pt } from './arm';
-import { reducedMotion, unlockAudio, sound, trickle, settingsUi, bindSettings } from './preferences';
+import { reducedMotion, unlockAudio, sound, trickle, ragtime, settingsUi, bindSettings } from './preferences';
 
 let saved = loadProgress(() => null);
 try { saved = loadProgress(k => localStorage.getItem(k)); } catch { /* storage blocked: fresh progress */ }
@@ -177,7 +178,7 @@ function courtyard() {
   ['#f359a4', '#c7f653', '#f4f1e8', '#6fb6c6', '#f6c453'].forEach((color, i) => {
     const cloth = new THREE.Mesh(new THREE.PlaneGeometry(.9, 1.1), new THREE.MeshStandardMaterial({ color, side: THREE.DoubleSide, roughness: 1 }));
     cloth.position.set(-4.6 + i * 2.2, 3.85, -4.5 + (i % 2) * .02); cloth.rotation.z = (i % 2 ? .05 : -.04); cloth.castShadow = true; g.add(cloth);
-    cloth.userData.sway = i;
+    cloth.userData.sway = i; cloth.userData.cloth = color;
   });
   block(g, .16, 5.6, .16, '#596358', -5.4, 2.8, -6); const lamp = new THREE.Mesh(new THREE.SphereGeometry(.28, 14, 10), new THREE.MeshBasicMaterial({ color: '#f7ffe0' })); lamp.position.set(-5.4, 5.7, -6); g.add(lamp);
   return g;
@@ -188,6 +189,9 @@ const levelGroups: Record<number, THREE.Group> = {};
 const levelScenery: Record<number, Hittable[]> = {};
 const swaying: THREE.Object3D[] = [];
 const swinging: THREE.Object3D[] = [];
+/** Gag props in the scene, by gag id (lamp pivots, ringing lamp heads, the cuckoo clock), and the washing on the line. */
+const gagParts = new Map<string, THREE.Object3D>();
+const laundry: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshStandardMaterial>[] = [];
 const barPainting = new THREE.Texture(); barPainting.colorSpace = THREE.SRGBColorSpace;
 new THREE.TextureLoader().load(asset('gen_bar_backdrop.png'), t => { barPainting.image = t.image; barPainting.needsUpdate = true; }, undefined, () => { /* bare walls if the painting is missing */ });
 const LEVEL_IDS = [1, 2] as const;
@@ -196,7 +200,11 @@ for (const level of LEVEL_IDS) {
   const backdrop = new THREE.Group(); group.add(backdrop);
   if (isBar(level)) backdrop.add(makeBar(barPainting));
   else { const y = courtyard(), a = makeStreet({ left: false }); y.position.x = YARD_X; a.position.x = ALLEY_X; backdrop.add(y, a); }
-  backdrop.traverse(o => { if (o.userData.sway !== undefined) swaying.push(o); if (o.userData.swing !== undefined) swinging.push(o); });
+  backdrop.traverse(o => {
+    if (o.userData.sway !== undefined) swaying.push(o); if (o.userData.swing !== undefined) swinging.push(o);
+    if (o.userData.lamp !== undefined) gagParts.set('gag-lamp-' + o.userData.lamp, o); if (o.userData.bell !== undefined) gagParts.set('gag-bell-' + o.userData.bell, o);
+    if (o.userData.cloth) laundry.push(o as THREE.Mesh<THREE.PlaneGeometry, THREE.MeshStandardMaterial>);
+  });
   const layout = LEVELS[level];
   for (const c of layout.covers) buildCover(group, c);
   trims(group, layout.covers);
@@ -279,6 +287,30 @@ function hatMouth() {
 for (const t of signs) greyCanvas(t.image as HTMLCanvasElement);
 for (const level of LEVEL_IDS) greyscaleWorld(levelGroups[level]);
 greyColor(ink.color);
+// Colour = you can do something with it: the washing on the line (laundry gag) keeps its paint.
+for (const c of laundry) { c.material = c.material.clone(); c.material.color.set(c.userData.cloth as string); }
+{ // Gag cues added after the grey pass: the cuckoo clock on the back-room wall, sheet music on the piano, brass bells under the near street lamps.
+  const clock = LEVELS[1].gags.find(g => g.id === 'gag-cuckoo')!, cw = .66 / .852, ch = cw / .8;
+  const cuckoo = new THREE.Mesh(new THREE.PlaneGeometry(cw, ch).translate(0, ch / 2, 0), new THREE.MeshBasicMaterial({ map: spriteTexture('gen_cuckoo.png', 'barrel'), alphaTest: .5 }));
+  (cuckoo.material.map as THREE.Texture).colorSpace = THREE.SRGBColorSpace;
+  cuckoo.position.set((clock.min!.x + clock.max!.x) / 2, clock.min!.y - .02, clock.max!.z - .02); levelGroups[1].add(cuckoo); gagParts.set('gag-cuckoo', cuckoo);
+  const c = document.createElement('canvas'); c.width = 256; c.height = 150; const g = c.getContext('2d');
+  if (g) {
+    g.fillStyle = '#fff4d6'; g.fillRect(0, 0, 256, 150); g.strokeStyle = '#3a2a1e'; g.lineWidth = 2; for (let y = 34; y <= 114; y += 16) { g.beginPath(); g.moveTo(14, y); g.lineTo(242, y); g.stroke(); }
+    g.font = '900 54px Georgia'; ['#e8475f', '#2f6fe0', '#e8475f', '#2f9c5a', '#2f6fe0'].forEach((col, i) => { g.fillStyle = col; g.fillText('♪', 22 + i * 46, 96 - (i % 3) * 14); });
+    g.strokeStyle = '#151715'; g.lineWidth = 6; g.strokeRect(3, 3, 250, 144);
+  }
+  const sheetTex = new THREE.CanvasTexture(c); sheetTex.colorSpace = THREE.SRGBColorSpace;
+  const piano = LEVELS[1].covers.find(v => v.id === 'piano')!, sheet = new THREE.Mesh(new THREE.PlaneGeometry(.62, .36), new THREE.MeshBasicMaterial({ map: sheetTex }));
+  sheet.position.set((piano.min.x + piano.max.x) / 2, piano.max.y * .8, piano.max.z + .045); sheet.rotation.x = -.12; levelGroups[1].add(sheet);
+  for (const id of ['gag-bell-0', 'gag-bell-1']) {
+    const head = gagParts.get(id); if (!head) continue; const at = head.getWorldPosition(new THREE.Vector3());
+    const bell = new THREE.Mesh(new THREE.SphereGeometry(.17, 16, 8, 0, Math.PI * 2, 0, Math.PI / 2), new THREE.MeshStandardMaterial({ color: '#e0a83a', metalness: .6, roughness: .3, side: THREE.DoubleSide }));
+    bell.position.set(at.x, at.y - .3, at.z); levelGroups[2].add(bell); bell.userData.ringer = id;
+    const clapper = new THREE.Mesh(new THREE.SphereGeometry(.05, 8, 6), new THREE.MeshStandardMaterial({ color: '#c8742a' })); clapper.position.y = -.04; bell.add(clapper);
+    gagParts.set(id, bell);
+  }
+}
 {
   const mat = new THREE.Mesh(new THREE.BoxGeometry(1.1, .02, .5), new THREE.MeshStandardMaterial({ color: '#7c3ae6', roughness: .7 }));
   mat.position.set(.9, landingCover.max.y + .01, (landingCover.min.z + landingCover.max.z) / 2 + .05); levelGroups[1].add(mat, hatTrophy);
@@ -554,6 +586,7 @@ function drainEvents(at?: { x: number; y: number }) {
     if (e.type === 'dog') { if (v) v.sad = 2.4; sound('dog'); callout(game.ult.phase === 'pour' ? 'ПЁС ОСКОРБЛЁН!' : 'ПСА НЕ ТРОГАЙ!', p.x, p.y - 60, 'bad'); }
     if (e.type === 'ult') startUlt();
     if (e.type === 'land' && e.point) sound('thud');
+    if (e.type === 'gag') playGag(e);
     if (e.type === 'shatter' && e.point && e.prop) { shatter(e.point, PROPS[e.prop].shards ?? ['#ffffff']); pop('smash', e.point, .8); }
     if (e.type === 'ultEnd') { sound('slide'); callout(e.amount ? `НИ КАПЛИ МИМО! +${e.amount}` : 'ПРОЛИЛ… ПЛАТИ ТРИСТА', innerWidth / 2, innerHeight * .6, e.amount ? 'combo' : 'bad'); }
   }
@@ -613,6 +646,59 @@ function flyProps(dt: number) {
     if (PROPS[flight.kind].breakable) sound('shatter');
   }
   drainEvents();
+}
+
+// -------------------------------------------------------------------------------------------------
+// ENVIRONMENT GAGS: piano ragtime, the insulting cuckoo, swinging lamps, ringing street lamps, falling laundry.
+// -------------------------------------------------------------------------------------------------
+const INSULTS = ['КУ-КУ, МАЗИЛА!', 'КУ-КУ! РУКИ-КРЮКИ!', 'КУ-КУ! ИДИ ДОМОЙ!', 'КУ-КУ! НУ ТЫ И ЛОПУХ!'];
+let insult = 0, flicker = 0;
+/** Washing falling from the line onto a bully's head (screen-space, follows the victim). */
+const drops2: { from: Vec3; id: number; color: string; age: number }[] = [];
+function playGag(e: GameEvent) {
+  const part = e.gagId ? gagParts.get(e.gagId) : undefined, at = e.point ?? (part ? part.getWorldPosition(new THREE.Vector3()) : null), p = at ? toScreen(at) : { x: innerWidth / 2, y: innerHeight / 3 };
+  canvas.dataset.gag = `${e.gag}:${game.riffs}`;
+  if (e.gag === 'piano') {
+    ragtime(ragtimeScore(e.amount ?? 0)); callout('♪ ТРЫНЬ-ТЫН-ТЫН ♪', p.x, p.y - 40, 'combo');
+    const c = coverMeshes.get('piano'); if (c) c.userData.wobble = 1; pianoNotes = 3.5;
+  } else if (e.gag === 'cuckoo') {
+    sound('cuckoo'); callout(INSULTS[insult++ % INSULTS.length], p.x, p.y - 30, 'bad'); if (part) part.userData.pop = 1;
+  } else if (e.gag === 'lamp') {
+    sound('buzz'); if (part) part.userData.swingV = (part.userData.swingV ?? 0) + (Math.random() < .5 ? -1 : 1) * 2.2; flicker = 1.2;
+  } else if (e.gag === 'bell') {
+    sound('bell'); callout('ДЗИИИНЬ!', p.x, p.y, 'pop'); if (part) part.userData.ring = 1;
+  } else if (e.gag === 'laundry') {
+    sound('flop'); const cloth = laundry.find(c => c.visible);
+    if (cloth) { cloth.visible = false; if (e.id) drops2.push({ from: cloth.getWorldPosition(new THREE.Vector3()), id: e.id, color: cloth.userData.cloth as string, age: 0 }); }
+    if (e.id) callout('ТРУСЫ НА ГОЛОВУ!', p.x, p.y + 30, 'combo');
+  }
+}
+let pianoNotes = 0;
+function animateGags(dt: number, time: number) {
+  for (const [id, o] of gagParts) {
+    if (id.startsWith('gag-lamp')) {
+      // A damped pendulum; the lights flicker while the hit is fresh.
+      const v = (o.userData.swingV ?? 0) - o.rotation.z * 9 * dt; o.userData.swingV = v * (1 - dt * .45); o.rotation.z += o.userData.swingV * dt;
+      o.traverse(l => { if (l instanceof THREE.PointLight) l.intensity = (l.userData.base as number) * (flicker > 0 && Math.sin(time * 61) > -.2 + (1 - flicker) ? .15 : 1); });
+    } else if (o.userData.ring) { o.userData.ring = Math.max(0, o.userData.ring - dt * .9); o.rotation.z = Math.sin(time * 26) * .5 * o.userData.ring; }
+    else if (o.userData.pop) { o.userData.pop = Math.max(0, o.userData.pop - dt * 1.6); const k = Math.sin(o.userData.pop * Math.PI * 3) * o.userData.pop; o.scale.set(1 + k * .18, 1 + k * .18, 1); }
+  }
+  flicker = Math.max(0, flicker - dt);
+  if (pianoNotes > 0) { pianoNotes -= dt; if (Math.random() < dt * 5) { const pc = LEVELS[1].covers.find(c => c.id === 'piano')!, s = toScreen({ x: pc.min.x + Math.random() * (pc.max.x - pc.min.x), y: pc.max.y + .3, z: pc.max.z }); callout(['♪', '♫', '♬'][Math.floor(Math.random() * 3)], s.x, s.y, 'pop'); } }
+}
+function drawLaundryDrops(g: CanvasRenderingContext2D, dt: number, ink: number) {
+  for (let i = drops2.length - 1; i >= 0; i--) {
+    const d = drops2[i]; d.age += dt; const v = views.get(d.id), to = v ? barAnchor(v) : null;
+    if (d.age > 2.6 || (!to && d.age > .5)) { drops2.splice(i, 1); continue; }
+    const k = Math.min(1, d.age / .5), w = to ?? d.from, at = { x: d.from.x + (w.x - d.from.x) * k, y: d.from.y + (w.y - .35 - d.from.y) * k * k, z: d.from.z + (w.z - d.from.z) * k };
+    const p = toScreen(at), q = toScreen({ ...at, x: at.x + 1 }), u = THREE.MathUtils.clamp(Math.abs(q.x - p.x), 20, 160) * .5;
+    g.save(); g.translate(p.x, p.y); g.rotate(k < 1 ? Math.sin(d.age * 20) * .4 : Math.sin(d.age * 6) * .08); g.globalAlpha = Math.min(1, (2.6 - d.age) * 2);
+    // Cartoon underpants: a waistband and two leg holes.
+    g.beginPath(); g.moveTo(-u * .6, -u * .3); g.lineTo(u * .6, -u * .3); g.lineTo(u * .55, u * .25); g.lineTo(u * .15, u * .3); g.lineTo(0, u * .05); g.lineTo(-u * .15, u * .3); g.lineTo(-u * .55, u * .25); g.closePath();
+    g.fillStyle = d.color; g.fill(); g.lineWidth = Math.max(2, ink * .4); g.strokeStyle = '#151715'; g.lineJoin = 'round'; g.stroke();
+    g.fillStyle = '#ffffff'; for (const [x, y] of [[-.3, -.05], [.25, .02], [0, -.18]]) { g.beginPath(); g.arc(x * u, y * u, u * .06, 0, Math.PI * 2); g.fill(); }
+    g.restore();
+  }
 }
 
 /** Arrival: re-cast the same ray against the scene as it is *now* (actors keep moving while the fist flies). */
@@ -708,7 +794,7 @@ document.addEventListener('freeze', suspendPage);
 addEventListener('pagehide', suspendPage);
 
 function button(id: string, handler: () => void) { document.getElementById(id)?.addEventListener('click', () => { unlockAudio(); sound('ui'); handler(); }); }
-function startLevel(level: number) { if (game.start(level)) { pan = 0; panVel = 0; lastMode = ''; damageNumbers.length = 0; pops.length = 0; shards.length = 0; } renderUi(); }
+function startLevel(level: number) { if (game.start(level)) { for (const c of laundry) c.visible = true; drops2.length = 0; pan = 0; panVel = 0; lastMode = ''; damageNumbers.length = 0; pops.length = 0; shards.length = 0; } renderUi(); }
 function chrome() { return '<div class="topline"><div class="brand"><span>↗</span> ДВОР ДА ДЕЛО</div><div class="tag">РУКИ ДЛИННЕЕ. ДЕНЬ ЛУЧШЕ.</div></div>'; }
 
 function renderUi() {
@@ -960,7 +1046,7 @@ function drawArm(time: number) {
   g.setTransform(dpr, 0, 0, dpr, 0, 0);
   if (isBar()) drawStream(g, W, H, time, armMetrics(W, H).ink);
   const { ink, rim } = armMetrics(W, H), avoid = avoidRect, s = swing, k = s ? s.phase : 1;
-  drawHealthBars(g, dt, ink);
+  drawHealthBars(g, dt, ink); drawLaundryDrops(g, dt, ink);
   const spot = s ? { x: s.spot.x * W, y: s.spot.y * H } : { x: 0, y: 0 };
   const active = s && k < 1 ? (s.throwing ? 1 : sideFor(spot, W)) : 0;
   // Impact burst sits behind the glove so the fist stays readable on contact.
@@ -1029,7 +1115,7 @@ function frame() {
   }
   if (game.mode !== 'play' && game.mode !== 'pause') swing = null;
 
-  flyProps(dt); syncFlights();
+  flyProps(dt); syncFlights(); animateGags(dt, runtime);
   animateLeaving(dt, runtime);
   for (const cover of coverMeshes.values()) {
     const w = cover.userData.wobble as number | undefined; if (!w) continue;

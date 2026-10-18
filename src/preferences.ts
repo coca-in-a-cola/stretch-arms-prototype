@@ -21,9 +21,9 @@ export function unlockAudio(){
     if(context.state==='suspended')void context.resume().catch(()=>{audioAvailable=false;});
   } catch { audioAvailable=false; }
 }
-export type Sfx='ui'|'hit'|'throw'|'grab'|'miss'|'whoosh'|'ko'|'dog'|'attack'|'cover'|'windup'|'ding'|'slide'|'yuck'|'thud'|'shatter'|'toss';
-/** Tiny synth voices: [wave, start Hz, end Hz, length s, volume, noise mix]. */
-const VOICES:Record<Sfx,[OscillatorType,number,number,number,number,number][]>={
+export type Sfx='ui'|'hit'|'throw'|'grab'|'miss'|'whoosh'|'ko'|'dog'|'attack'|'cover'|'windup'|'ding'|'slide'|'yuck'|'thud'|'shatter'|'toss'|'bell'|'cuckoo'|'buzz'|'flop';
+/** Tiny synth voices: [wave, start Hz, end Hz, length s, volume, noise mix, delay s]. */
+const VOICES:Record<Sfx,[OscillatorType,number,number,number,number,number,number?][]>={
   ui:[['sine',520,300,.1,.05,0]],
   whoosh:[['sine',180,420,.16,.02,.9]],
   hit:[['triangle',150,48,.16,.09,.5],['square',420,160,.05,.025,0]],
@@ -42,6 +42,11 @@ const VOICES:Record<Sfx,[OscillatorType,number,number,number,number,number][]>={
   // Thrown props: a quick release swish, a soft landing thud, glass / fruit breaking.
   toss:[['sine',260,620,.14,.03,.8]],
   thud:[['triangle',120,55,.14,.07,.5]],
+  // Environment gags: a street lamp rung like a bell, the cuckoo's two notes, a lamp's electric buzz, falling laundry.
+  bell:[['sine',988,980,1.6,.07,0],['sine',1976,1960,.9,.025,0],['triangle',494,490,1.4,.035,0]],
+  cuckoo:[['sine',784,780,.2,.06,0,0],['sine',622,620,.35,.06,0,.24],['sine',784,780,.2,.05,0,.75],['sine',622,620,.35,.05,0,.99]],
+  buzz:[['sawtooth',110,108,.45,.03,.5],['square',220,218,.3,.012,0,.1]],
+  flop:[['sine',320,110,.35,.04,.6]],
   shatter:[['square',2400,1800,.18,.02,.9],['triangle',1600,900,.25,.025,.6],['sine',3200,2600,.12,.015,0]],
 };
 let noise:AudioBuffer|undefined;
@@ -49,7 +54,8 @@ export function sound(kind:Sfx){
   if(muted||document.hidden||!context||context.state!=='running')return;
   const ctx=context, now=ctx.currentTime;
   if(!noise){noise=ctx.createBuffer(1,ctx.sampleRate*.4,ctx.sampleRate);const d=noise.getChannelData(0);for(let i=0;i<d.length;i++)d[i]=Math.random()*2-1;}
-  for(const [type,f0,f1,len,vol,mix] of VOICES[kind]){
+  for(const [type,f0,f1,len,vol,mix,delay] of VOICES[kind]){
+    const now=ctx.currentTime+(delay??0);
     const gain=ctx.createGain(); gain.connect(ctx.destination);
     gain.gain.setValueAtTime(.0001,now);gain.gain.exponentialRampToValueAtTime(vol,now+.008);gain.gain.exponentialRampToValueAtTime(.0001,now+len);
     const osc=ctx.createOscillator(); osc.type=type; osc.frequency.setValueAtTime(f0,now); osc.frequency.exponentialRampToValueAtTime(Math.max(30,f1),now+len*.8);
@@ -86,4 +92,21 @@ export function settingsUi(){return `<div class="settings" aria-label="Наст�
 export function bindSettings(render:()=>void){
   document.getElementById('mute')?.addEventListener('click',()=>{muted=!muted;save();if(!muted){unlockAudio();sound('ui');}render();});
   document.getElementById('motion')?.addEventListener('click',()=>{motionOverride=!reducedMotion();applyMotion();save();render();});
+}
+/** Honky-tonk piano: each note is two triangle voices detuned a few cents apart plus a quiet square for the
+ * hammer bite, through a soft low-pass. A new riff cuts the one still ringing (restart on every hit). */
+let riffBus:GainNode|undefined;
+export function ragtime(notes:readonly {t:number;midi:number;dur:number;vel:number}[]){
+  if(muted||document.hidden||!context||context.state!=='running')return false;
+  const ctx=context,now=ctx.currentTime+.03;
+  if(riffBus){const old=riffBus;old.gain.setTargetAtTime(0,ctx.currentTime,.03);setTimeout(()=>old.disconnect(),400);}
+  const bus=ctx.createGain();bus.gain.value=.9;const lp=ctx.createBiquadFilter();lp.type='lowpass';lp.frequency.value=3200;lp.Q.value=.4;bus.connect(lp);lp.connect(ctx.destination);riffBus=bus;
+  for(const n of notes){
+    const f=440*2**((n.midi-69)/12),t0=now+n.t,t1=t0+n.dur+.25,g=ctx.createGain();g.connect(bus);
+    g.gain.setValueAtTime(.0001,t0);g.gain.exponentialRampToValueAtTime(.045*n.vel,t0+.005);g.gain.exponentialRampToValueAtTime(.012*n.vel,t0+Math.min(.18,n.dur));g.gain.exponentialRampToValueAtTime(.0001,t1);
+    for(const [type,cents,vol] of [['triangle',-9,1],['triangle',9,1],['square',3,.12]] as const){
+      const o=ctx.createOscillator(),og=ctx.createGain();o.type=type;o.frequency.value=f;o.detune.value=cents;og.gain.value=vol;o.connect(og);og.connect(g);o.start(t0);o.stop(t1+.02);o.onended=()=>{o.disconnect();og.disconnect();};
+    }
+  }
+  return true;
 }

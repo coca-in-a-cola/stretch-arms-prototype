@@ -13,7 +13,7 @@ export function makeStreet({ left = true } = {}) {
   function lamp(side: number, z: number) {
     block([.16, 6, .16], [side * 4.9, 3, z], '#1f1a2a');
     block([1.6, .15, .15], [side * 4.25, 6, z], '#1f1a2a');
-    const head = block([.65, .14, .45], [side * 3.5, 5.85, z], '#fff1b2', true); head.userData.lamp = side * 100 + z;
+    const head = block([.65, .14, .45], [side * 3.5, 5.85, z], '#fff1b2', true); if (z === -5) head.userData.bell = side < 0 ? 0 : 1; // the near lamps ring (gag-bell-N)
     // Each lamp throws a hard pool of light on the street (the B/W world reads by contrast, not hue).
     const pool = new THREE.PointLight('#ffffff', 160, 12, 2); pool.position.set(side * 3.3, 5.2, z); street.add(pool);
   }

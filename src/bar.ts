@@ -36,11 +36,13 @@ export function makeBar(backdrop: THREE.Texture) {
   for (const x of [-2.3, 2.7]) stool(x, -1.55, .95);
   stool(.95, 3.45, .7);
   // Hanging lamps: bright shades and hard pools of light (contrast, not hue).
-  for (const x of [-3, 2.5]) {
-    const cord = new THREE.Mesh(new THREE.CylinderGeometry(.015, .015, 2.6, 4), new THREE.MeshBasicMaterial({ color: '#111111' })); cord.position.set(x, 7.1, -3.2); bar.add(cord);
-    const shade = new THREE.Mesh(new THREE.ConeGeometry(.55, .45, 18, 1, true), new THREE.MeshBasicMaterial({ color: '#f4efe0', side: THREE.DoubleSide })); shade.position.set(x, 5.7, -3.2); bar.add(shade);
-    const pool = new THREE.PointLight('#ffffff', 55, 11, 1.6); pool.position.set(x, 5.2, -3.2); bar.add(pool);
-  }
+  // Each lamp hangs from a pivot at the ceiling so a hit can set it swinging (the 'lamp' gag); userData.lamp = gag index.
+  [-3, 2.5].forEach((x, i) => {
+    const pivot = new THREE.Group(); pivot.position.set(x, 8.4, -3.2); pivot.userData.lamp = i; bar.add(pivot);
+    const cord = new THREE.Mesh(new THREE.CylinderGeometry(.015, .015, 2.6, 4), new THREE.MeshBasicMaterial({ color: '#111111' })); cord.position.set(0, -1.3, 0); pivot.add(cord);
+    const shade = new THREE.Mesh(new THREE.ConeGeometry(.55, .45, 18, 1, true), new THREE.MeshBasicMaterial({ color: '#f4efe0', side: THREE.DoubleSide })); shade.position.set(0, -2.7, 0); pivot.add(shade);
+    const pool = new THREE.PointLight('#ffffff', 55, 11, 1.6); pool.position.set(0, -3.2, 0); pool.userData.base = 55; pivot.add(pool);
+  });
   // Swinging saloon doors in the back doorway, flapping on their own.
   for (const side of [-1, 1]) {
     const hinge = new THREE.Group(); hinge.position.set(side < 0 ? 3.55 : 5.35, 0, -7.2); bar.add(hinge);

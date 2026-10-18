@@ -1,5 +1,5 @@
 import type { HitKind, Vec3 } from './aim';
-import { LEVELS, LAST_LEVEL, WINDUP, onLanding, type Layer, type PropKind, type Skin } from './layout';
+import { LEVELS, LAST_LEVEL, WINDUP, onLanding, type GagKind, type Layer, type PropKind, type Skin } from './layout';
 import { PROPS, REACH_COST } from './props';
 import { launch, step, type Flight, type Impact } from './throw';
 import type { Hittable } from './aim';
@@ -15,7 +15,8 @@ export interface Actor {
 }
 /** Things that just happened, drained by the renderer to play attack / knockout / sad-dog / ult animations. */
 export interface GameEvent {
-  type: 'attack' | 'ko' | 'dog' | 'smash' | 'ult' | 'ultEnd' | 'hatBack' | 'hurt' | 'land' | 'shatter' | 'thud';
+  type: 'attack' | 'ko' | 'dog' | 'smash' | 'ult' | 'ultEnd' | 'hatBack' | 'hurt' | 'land' | 'shatter' | 'thud' | 'gag';
+  /** 'gag': which joke fired, the gag's id (its box / cover) and, for the laundry, the bully it landed on (id). */ gag?: GagKind; gagId?: string;
   id: number; combo: number; /** Damage dealt ('hurt'). */ amount?: number;
   /** World point of a landing / shatter / thrown-prop impact, and the prop kind. */ point?: Vec3; prop?: PropKind;
 }
@@ -69,14 +70,16 @@ export class Game {
   ult: { phase: UltPhase; t: number; meter: number; /** Seconds of the pour that went into the hat. */ hat: number } = { phase: 'none', t: 0, meter: 0, hat: 0 }; dogSoak = 0;
   /** Where the bowler sits on the counter once the ult is on (upside down, as a receptacle). */
   hatRest: (Vec3 & { flipped: boolean }) | null = null;
-  actors: Actor[] = []; events: GameEvent[] = []; flights: Flight[] = []; progress: Progress; won = false; defeated = 0; spawned = 0; spawnClock = 0; nextId = 1;
+  actors: Actor[] = []; events: GameEvent[] = []; flights: Flight[] = [];
+  /** Gags: how many piano riffs played (each repeat varies) and pieces of washing left on the line. */
+  riffs = 0; laundry = 5; progress: Progress; won = false; defeated = 0; spawned = 0; spawnClock = 0; nextId = 1;
   message = 'Двор ждёт своих героев';
   constructor(progress = freshProgress(), private save: (p: Progress) => void = () => {}) { this.progress = progress; }
   get layout() { return LEVELS[this.level]; }
   get goal() { return this.layout.goal; }
   start(level: number) {
     if (level > this.progress.unlocked) return false;
-    this.level = level; this.hp = 5; this.stamina = 100; this.score = 0; this.combo = 0; this.elapsed = 0; this.held = null; this.actors = []; this.events = []; this.flights = []; this.won = false; this.defeated = 0; this.spawned = 0; this.spawnClock = 0; this.nextId = 1; this.mode = 'play'; this.message = this.layout.look === 'bar' ? 'Бар «Длинные руки». Ведите себя прилично.' : 'Улица большая — крути камеру к краям!';
+    this.level = level; this.hp = 5; this.stamina = 100; this.score = 0; this.combo = 0; this.elapsed = 0; this.held = null; this.actors = []; this.events = []; this.flights = []; this.riffs = 0; this.laundry = 5; this.won = false; this.defeated = 0; this.spawned = 0; this.spawnClock = 0; this.nextId = 1; this.mode = 'play'; this.message = this.layout.look === 'bar' ? 'Бар «Длинные руки». Ведите себя прилично.' : 'Улица большая — крути камеру к краям!';
     this.ult = { phase: 'none', t: 0, meter: 0, hat: 0 }; this.dogSoak = 0; this.hatRest = null;
     for (const p of this.layout.props) this.actors.push({ id: this.nextId++, kind: p.kind, x: p.x, y: p.y, z: p.z, layer: layerAt(p.z), age: 0, deadline: Infinity });
     this.spawn(); this.placeHat(); return true;
@@ -103,6 +106,25 @@ export class Game {
     this.actors = this.actors.filter(v => v.id !== t.id); this.combo++; this.defeated++; this.score += 120 + Math.min(this.combo - 1, 9) * 25;
     this.events.push({ type: 'ko', id: t.id, combo: this.combo }); this.message = 'Смыло!';
     if (this.defeated >= this.goal) this.finish(true); return 'ko';
+  }
+  /** An environment joke struck by a fist or a thrown prop. Returns false if `id` is not a gag. */
+  gag(id: string, point?: Vec3) {
+    const g = this.layout.gags.find(v => v.id === id); if (!g) return false;
+    const e: GameEvent = { type: 'gag', id: 0, combo: this.combo, gag: g.kind, gagId: g.id, point };
+    if (g.kind === 'piano') { e.amount = this.riffs++; this.message = 'ТРЫНЬ! Пианино само заиграло рэгтайм.'; }
+    else if (g.kind === 'cuckoo') this.message = 'КУ-КУ! Кукушка высунулась и обозвала тебя.';
+    else if (g.kind === 'lamp') this.message = 'Лампа раскачалась — свет мигает!';
+    else if (g.kind === 'bell') this.message = 'ДЗИИНЬ! Фонарь звенит, как колокол.';
+    else if (g.kind === 'laundry') {
+      if (this.laundry <= 0) { this.message = 'Верёвка пуста — всё бельё уже на задирах.'; return true; }
+      this.laundry--;
+      // The washing drops on the bully nearest below the line (exposed, on the yard side), with a sting.
+      const cx = point?.x ?? ((g.min!.x + g.max!.x) / 2), under = this.actors.filter(t => t.kind === 'enemy' && t.age > .3 && t.x > g.min!.x - 1 && t.x < g.max!.x + 1)
+        .sort((a, b) => Math.abs(a.x - cx) - Math.abs(b.x - cx))[0];
+      if (under) { e.id = under.id; this.events.push(e); this.hurt(under, 10); this.message = 'Трусы на голову! Задира ослеп.'; return true; }
+      this.message = 'Бельё шлёпнулось в пыль. Мимо!';
+    }
+    this.events.push(e); return true;
   }
   /** One frame of the pour landing in the upside-down hat: that is the bet (and a trickle of points). */
   pourInHat(dt: number) {
@@ -171,6 +193,7 @@ export class Game {
     }
     const t = typeof hit.id === 'number' ? this.actors.find(v => v.id === hit.id) : undefined;
     if (throwing && thrown && thrown !== 'hat' && (!t || t.kind !== 'enemy') && hit.point) this.rest(thrown, { x: hit.point.x, y: 0, z: hit.point.z });
+    if (hit.kind === 'cover' && typeof hit.id === 'string' && this.gag(hit.id, hit.point)) { this.combo = 0; return 'cover'; }
     if (hit.kind === 'cover') { this.combo = 0; this.message = throwing ? 'Бросок в укрытие. Жди, пока высунется!' : 'ТУК! Укрытие. Бей, когда высунется.'; return 'cover'; }
     if (!t) { this.combo = 0; this.message = hit.kind === 'scenery' ? 'Только стену поцарапал.' : throwing ? 'Бросок в никуда.' : 'Мимо! Чистый промах.'; return 'miss'; }
     if (t.kind === 'dog') { this.dogHit(t); return 'protected'; }
@@ -204,7 +227,7 @@ export class Game {
           const t = typeof impact.id === 'number' ? this.actors.find(v => v.id === impact.id) : undefined;
           if (t?.kind === 'enemy') { if (spec.damage) this.hurt(t, spec.damage, true); else { this.combo = 0; this.message = 'Шляпу — не в задиру!'; } }
           else if (t?.kind === 'dog') this.dogHit(t);
-          else { this.combo = 0; this.message = impact.kind === 'cover' ? 'Бросок в укрытие. Жди, пока высунется!' : 'Только стену задел.'; }
+          else if (!(typeof impact.id === 'string' && this.gag(impact.id, impact.point))) { this.combo = 0; this.message = impact.kind === 'cover' ? 'Бросок в укрытие. Жди, пока высунется!' : 'Только стену задел.'; }
           if (spec.breakable) { this.flights = this.flights.filter(v => v !== f); this.events.push({ type: 'shatter', id: f.id, combo: this.combo, point: impact.point, prop: f.kind }); break; }
         } else {
           this.flights = this.flights.filter(v => v !== f);
