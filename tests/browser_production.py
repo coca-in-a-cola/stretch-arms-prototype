@@ -102,6 +102,17 @@ def play_level1(page: Page, touch: bool, first: bool) -> None:
     page.locator('#app[data-mode=result]').wait_for(timeout=120000)
 
 
+def skip_briefing(page: Page, touch: bool = False, clock: bool = False) -> None:
+    """SA-V4-18: the herald briefs each level once per session; this run is about the fight, so press ПОНЯЛ."""
+    if os.environ.get('NO_HERALD'):
+        return  # baseline runs against a build without the briefing
+    page.locator('#heraldSkip').wait_for(timeout=20000)
+    (page.locator('#heraldSkip').tap() if touch else page.locator('#heraldSkip').click())
+    if clock:
+        page.clock.run_for(1300)
+    page.locator('#herald').wait_for(state='hidden', timeout=20000)
+
+
 def check_buttons(page: Page) -> None:
     for button in page.get_by_role('button').all():
         if button.is_visible():
@@ -139,6 +150,7 @@ def acting_evidence(browser, url: str, errors: list[str]) -> None:
     assert_production(page)
     page.locator('#start').click()
     page.locator('#level1').click()
+    skip_briefing(page, clock=True)
     page.mouse.move(720, 300)
     page.clock.run_for(900)
     capture(page, 'arm-idle-level1')
@@ -171,6 +183,7 @@ def acting_evidence(browser, url: str, errors: list[str]) -> None:
     page.locator('#pause').click()
     page.locator('#select').click()
     page.locator('#level2').click()
+    skip_briefing(page, clock=True)
     page.mouse.move(720, 300)
     page.clock.run_for(900)
     capture(page, 'arm-idle-level2')
@@ -210,6 +223,7 @@ def main() -> None:
             page.locator('#start').click()
             assert page.locator('#level2').is_disabled()
             page.locator('#level1').click()
+            skip_briefing(page)
             page.locator('#pause').click()
             frozen = snapshot(page)
             page.wait_for_timeout(1200)
@@ -235,6 +249,7 @@ def main() -> None:
             page.locator('#select').click()
             assert page.locator('#level2').is_enabled()
             page.locator('#level2').click()
+            skip_briefing(page)
             page.wait_for_function('document.querySelector("#app").dataset.level==="2"')
             page.wait_for_timeout(2600)
             capture(page, 'level2')
@@ -260,10 +275,12 @@ def main() -> None:
             check_buttons(mp)
             mp.locator('#start').tap()
             mp.locator('#level1').tap()
+            skip_briefing(mp, touch=True)
             win_level1(mp, 390, 844, touch=True)
             capture(mp, 'portrait-win')
             mp.locator('#select').tap()
             mp.locator('#level2').tap()
+            skip_briefing(mp, touch=True)
             capture(mp, 'portrait-level2')
             strike_until_progress(mp, 0, True)
             mp.set_viewport_size({'width':844,'height':390})

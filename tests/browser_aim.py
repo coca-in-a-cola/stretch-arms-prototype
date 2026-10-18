@@ -28,7 +28,7 @@ def settle(page: Page) -> None:
 
 
 def fresh_level(page: Page, level: int, enemies: int = 3) -> None:
-    page.evaluate('(l)=>{__game.progress.unlocked=2;__game.start(l)}', level)
+    page.evaluate('(l)=>{__game.progress.unlocked=2;__game.briefings=false;__game.start(l)}', level)
     page.evaluate('(n)=>{for(let i=1;i<n;i++)__game.spawn();for(const t of __game.actors)t.deadline=t.kind==="enemy"?999:t.deadline}', enemies)
     page.evaluate('__game.stamina=100')
     settle(page)

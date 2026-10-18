@@ -23,7 +23,7 @@ def free_port() -> int:
 
 
 def start(page: Page, level: int) -> None:
-    page.evaluate('(l)=>{__game.progress.unlocked=2;__game.mode="select"}', level)
+    page.evaluate('(l)=>{__game.progress.unlocked=2;__game.briefings=false;__game.mode="select"}', level)
     page.wait_for_timeout(100)
     page.locator(f'#level{level}').click()
     page.wait_for_function('document.querySelector("#app").dataset.mode==="play"')
