@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { PROPS, REACH_COST } from '../src/props';
+import { PROPS, PROP_KINDS, REACH_COST } from '../src/props';
 import { Game, ANTIC, ENEMY_HP, PUNCH_DAMAGE, STAMINA_REGEN, healthBarAlpha, readProgress, loadProgress, resultActions, PROGRESS_KEY, LEGACY_PROGRESS_KEY, type Progress } from '../src/game';
 import { LEVELS } from '../src/layout';
 
@@ -60,6 +60,30 @@ describe('deterministic arcade rules', () => {
     expect(enemy.hp).toBe(0);
     expect(g.actors).not.toContain(enemy);
     expect(g.events.some(e => e.type === 'ko' && e.id === enemy.id)).toBe(true);
+  });
+  test('every throwable prop one-shots an enemy to zero HP and triggers KO, preserving gag effects', () => {
+    const throwable = PROP_KINDS.filter(k => k !== 'hat');
+    expect(throwable.length).toBe(18);
+    for (const kind of throwable) {
+      const g = new Game(); g.start(1);
+      const enemy = g.actors.find(t => t.kind === 'enemy')!;
+      expect(enemy.hp).toBe(enemy.maxHp!);
+      g.held = kind;
+      g.stamina = 100;
+      expect(g.act('grab', enemy.id)).toBe('throw');
+      expect(enemy.hp).toBe(0);
+      expect(g.actors).not.toContain(enemy);
+      expect(g.events.some(e => e.type === 'ko' && e.id === enemy.id)).toBe(true);
+      if (kind === 'chicken') {
+        expect(g.events.some(e => e.type === 'squeak' && e.id === enemy.id)).toBe(true);
+      } else if (kind === 'pie') {
+        expect(g.events.some(e => e.type === 'blind' && e.id === enemy.id)).toBe(true);
+        expect(enemy.blind).toBeGreaterThan(0);
+      } else if (kind === 'plunger') {
+        expect(g.events.some(e => e.type === 'stick' && e.id === enemy.id)).toBe(true);
+        expect(enemy.plunger).toBe(true);
+      }
+    }
   });
   test('bar stamina regen/enemy count values', () => {
     expect(STAMINA_REGEN[1]).toBeCloseTo(29.4, 1);

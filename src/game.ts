@@ -269,13 +269,13 @@ export class Game {
     if (!spec.damage) { this.combo = 0; this.message = 'Шляпу — не в задиру!'; return; }
     if (f.kind === 'anvil') { this.hurt(t, Math.max(spec.damage, t.hp ?? 0), true, 'pancake'); this.message = 'НАКОВАЛЬНЯ! Задира — блин.'; return; }
     if (f.kind === 'chicken') { this.bump(GAGS.chicken.combo); this.score += GAGS.chicken.bonus; this.events.push({ type: 'squeak', id: t.id, combo: this.combo, point }); }
-    const isGag = f.kind === 'chicken' || f.kind === 'pie' || f.kind === 'plunger';
-    const ko = this.hurt(t, isGag ? spec.damage * (t.antic ? ANTIC.bonus : 1) : Math.max(spec.damage, t.hp ?? 0), true);
+    if (f.kind === 'pie') { t.blind = GAGS.pie.blind; this.events.push({ type: 'blind', id: t.id, combo: this.combo, point }); }
+    if (f.kind === 'plunger') { t.plunger = true; t.deadline += GAGS.plunger.stun; this.events.push({ type: 'stick', id: t.id, combo: this.combo, point }); }
+    this.hurt(t, Math.max(spec.damage * (t.antic ? ANTIC.bonus : 1), t.hp ?? 0), true);
     if (f.kind === 'bowling' && f.hits?.length === 2) { this.events.push({ type: 'strike', id: t.id, combo: this.combo, point }); this.message = 'СТРАЙК! Двоих одним шаром!'; }
-    if (ko) return;
-    if (f.kind === 'pie') { t.blind = GAGS.pie.blind; this.events.push({ type: 'blind', id: t.id, combo: this.combo, point }); this.message = 'Пирог в лицо! Ничего не видит, шатается.'; }
-    if (f.kind === 'plunger') { t.plunger = true; t.deadline += GAGS.plunger.stun; this.events.push({ type: 'stick', id: t.id, combo: this.combo, point }); this.message = 'ЧПОК! Вантуз прилип к физиономии.'; }
-    if (f.kind === 'chicken') this.message = `ПИ-И-ИСК! Комбо +${GAGS.chicken.combo}!`;
+    else if (f.kind === 'pie') this.message = 'Пирог в лицо! Ничего не видит, шатается.';
+    else if (f.kind === 'plunger') this.message = 'ЧПОК! Вантуз прилип к физиономии.';
+    else if (f.kind === 'chicken') this.message = `ПИ-И-ИСК! Комбо +${GAGS.chicken.combo}!`;
   }
   /** A close-range thug pops in right in front of the camera: from a screen edge or out of a manhole. */
   spawnThug() {
@@ -345,9 +345,15 @@ export class Game {
     }
     if (action === 'punch' || throwing) {
       const caught = t.antic ? ANTIC.bonus : 1; // caught clowning around: double damage
-      const isGag = thrown === 'chicken' || thrown === 'pie' || thrown === 'plunger';
-      const dmg = throwing && thrown ? (isGag ? PROPS[thrown].damage * caught : Math.max(PROPS[thrown].damage, t.hp ?? 0)) : PUNCH_DAMAGE * caught;
-      if (!this.hurt(t, dmg, throwing) && caught > 1) this.message = 'ПОДЛОВИЛ! Урон ×2.';
+      if (throwing && thrown === 'chicken') { this.bump(GAGS.chicken.combo); this.score += GAGS.chicken.bonus; this.events.push({ type: 'squeak', id: t.id, combo: this.combo, point: hit.point }); }
+      if (throwing && thrown === 'pie') { t.blind = GAGS.pie.blind; this.events.push({ type: 'blind', id: t.id, combo: this.combo, point: hit.point }); }
+      if (throwing && thrown === 'plunger') { t.plunger = true; t.deadline += GAGS.plunger.stun; this.events.push({ type: 'stick', id: t.id, combo: this.combo, point: hit.point }); }
+      const dmg = throwing && thrown ? Math.max(PROPS[thrown].damage * caught, t.hp ?? 0) : PUNCH_DAMAGE * caught;
+      this.hurt(t, dmg, throwing);
+      if (throwing && thrown === 'pie') this.message = 'Пирог в лицо! Ничего не видит, шатается.';
+      else if (throwing && thrown === 'plunger') this.message = 'ЧПОК! Вантуз прилип к физиономии.';
+      else if (throwing && thrown === 'chicken') this.message = `ПИ-И-ИСК! Комбо +${GAGS.chicken.combo}!`;
+      else if (!throwing && caught > 1) this.message = 'ПОДЛОВИЛ! Урон ×2.';
       return throwing ? 'throw' : 'hit';
     }
     this.combo = 0; this.message = 'Задиру — кулаком. Предмет — хватай!'; return 'miss';

@@ -34,21 +34,29 @@ describe('prop gags', () => {
     const ko = g.events.find(e => e.type === 'ko' && e.id === foe.id)!;
     expect(ko).toBeTruthy(); expect(ko.how).toBe('pancake'); expect(g.actors.includes(foe)).toBe(false);
   });
-  test('cream pie: splats (breakable), blinds the bully for 3 s — it stumbles and cannot swing — then it recovers', () => {
+  test('cream pie: splats (breakable), blinds the bully on hit, one-shots to zero HP and KO; blinded bully stumbles and recovers', () => {
     const { g, foes: [foe] } = arena([{ x: 0, z: 0 }], 40); foe.deadline = foe.age + 1;
     throwAt(g, 'pie', eye, chest(foe));
     expect(g.events.some(e => e.type === 'shatter' && e.prop === 'pie')).toBe(true);
     expect(g.events.some(e => e.type === 'blind' && e.id === foe.id)).toBe(true);
-    expect(foe.blind).toBeGreaterThan(GAGS.pie.blind - .5); const hp = g.hp;
-    for (let i = 0; i < 60 * 2.4; i++) g.tick(1 / 60);
-    expect(g.hp).toBe(hp); expect(g.actors.includes(foe)).toBe(true); expect(foe.blind).toBeGreaterThan(0);
-    for (let i = 0; i < 60; i++) g.tick(1 / 60); expect(foe.blind).toBe(0);
+    expect(foe.blind).toBeGreaterThan(GAGS.pie.blind - .5);
+    expect(foe.hp).toBe(0);
+    expect(g.events.some(e => e.type === 'ko' && e.id === foe.id)).toBe(true);
+    expect(g.actors.includes(foe)).toBe(false);
+
+    const { g: g2, foes: [f2] } = arena([{ x: 0, z: 0 }], 40); f2.deadline = f2.age + 1; f2.blind = GAGS.pie.blind; const hp = g2.hp;
+    for (let i = 0; i < 60 * 2.4; i++) g2.tick(1 / 60);
+    expect(g2.hp).toBe(hp); expect(g2.actors.includes(f2)).toBe(true); expect(f2.blind).toBeGreaterThan(0);
+    for (let i = 0; i < 60; i++) g2.tick(1 / 60); expect(f2.blind).toBe(0);
   });
-  test('rubber chicken: squeak, tiny damage, a big combo bonus', () => {
+  test('rubber chicken: squeak, one-shot KO to zero HP, a big combo bonus', () => {
     const { g, foes: [foe] } = arena([{ x: 0, z: 0 }]); g.combo = 1; const score = g.score;
     throwAt(g, 'chicken', eye, chest(foe));
-    expect(foe.hp).toBe(30 - PROPS.chicken.damage); expect(PROPS.chicken.damage).toBeLessThan(PROPS.bottle.damage / 3);
-    expect(g.combo).toBe(1 + GAGS.chicken.combo); expect(g.score).toBeGreaterThanOrEqual(score + GAGS.chicken.bonus);
+    expect(foe.hp).toBe(0);
+    expect(g.events.some(e => e.type === 'ko' && e.id === foe.id)).toBe(true);
+    expect(g.actors.includes(foe)).toBe(false);
+    expect(PROPS.chicken.damage).toBeLessThan(PROPS.bottle.damage / 3);
+    expect(g.combo).toBe(1 + GAGS.chicken.combo + 1); expect(g.score).toBeGreaterThanOrEqual(score + GAGS.chicken.bonus);
     expect(g.events.some(e => e.type === 'squeak')).toBe(true);
   });
   test('watermelon: bursts and its seeds ricochet into the bullies nearby', () => {
@@ -77,9 +85,12 @@ describe('prop gags', () => {
     expect(g.actors.some(t => t.kind === 'bowling')).toBe(true); // and it stays where it stops
     expect(BOWL.minSpeed).toBeGreaterThan(3);
   });
-  test('plunger: sticks to the bully\'s face (no bounce, no landing) and stuns it', () => {
+  test('plunger: sticks to the bully\'s face (no bounce, no landing), one-shots to zero HP and stuns it', () => {
     const { g, foes: [foe] } = arena([{ x: 0, z: 0 }]); const dl = foe.deadline;
     throwAt(g, 'plunger', eye, chest(foe));
+    expect(foe.hp).toBe(0);
+    expect(g.events.some(e => e.type === 'ko' && e.id === foe.id)).toBe(true);
+    expect(g.actors.includes(foe)).toBe(false);
     expect(foe.plunger).toBe(true); expect(foe.deadline).toBe(dl + GAGS.plunger.stun); expect(g.flights.length).toBe(0);
     expect(g.events.some(e => e.type === 'stick')).toBe(true); expect(g.actors.some(t => t.kind === 'plunger')).toBe(false);
   });
@@ -92,6 +103,24 @@ describe('prop gags', () => {
     const { g, foes: [foe] } = arena([{ x: 0, z: 0 }], 200);
     throwAt(g, 'barrel', eye, chest(foe));
     expect(g.events.some(e => e.type === 'shatter')).toBe(false); expect(g.actors.some(t => t.kind === 'barrel')).toBe(true);
+  });
+  test('every throwable prop in flight one-shots an enemy to zero HP and triggers KO', () => {
+    const throwable = (Object.keys(PROPS) as PropKind[]).filter(k => k !== 'hat');
+    expect(throwable.length).toBe(18);
+    for (const kind of throwable) {
+      const { g, foes: [foe] } = arena([{ x: 0, z: 0 }], 50);
+      throwAt(g, kind, eye, chest(foe));
+      expect(foe.hp).toBe(0);
+      expect(g.actors.includes(foe)).toBe(false);
+      expect(g.events.some(e => e.type === 'ko' && e.id === foe.id)).toBe(true);
+      if (kind === 'chicken') {
+        expect(g.events.some(e => e.type === 'squeak' && e.id === foe.id)).toBe(true);
+      } else if (kind === 'pie') {
+        expect(g.events.some(e => e.type === 'blind' && e.id === foe.id)).toBe(true);
+      } else if (kind === 'plunger') {
+        expect(g.events.some(e => e.type === 'stick' && e.id === foe.id)).toBe(true);
+      }
+    }
   });
 });
 
