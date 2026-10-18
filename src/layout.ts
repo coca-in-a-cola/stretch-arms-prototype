@@ -240,14 +240,14 @@ export function dogAscent(age: number, motion = true): number {
 }
 
 /** Sprite feet position for an actor at a given age. Enemies rise/slide out of hiding; this is the hit pose too. */
-export interface Placed { kind: string; slot?: number; x: number; y: number; z?: number; age: number; deadline?: number; plan?: number; side?: -1 | 1; from?: 'edge' | 'manhole'; antic?: unknown; }
+export interface Placed { kind: string; slot?: number; x: number; y: number; z?: number; age: number; deadline?: number; plan?: number; side?: -1 | 1; from?: 'edge' | 'manhole'; antic?: unknown; blind?: number; }
 export function pose(level: number, t: Placed, motion = true): Vec3 {
   if (t.kind === 'dog') return { x: t.x + dogWalk(t.age, motion).dx, y: t.y + dogAscent(t.age, motion), z: t.z ?? 0 };
   if (t.kind === 'friend') { const plan = LEVELS[level].friends[t.plan ?? 0]; if (plan) return friendPose(plan, t.age, motion); }
   if (t.kind === 'thug') return thugPose({ x: t.x, z: t.z ?? 0, side: t.side ?? 1, from: t.from ?? 'edge' }, t.age, motion);
   const slot = t.slot === undefined ? undefined : LEVELS[level].slots[t.slot];
   if (!slot) return { x: t.x, y: t.y, z: t.z ?? 0 };
-  const k = t.antic ? (motion ? ease(Math.min(1, t.age / RISE_TIME)) : 1) : exposure(t.age, t.deadline, motion); // busy clowning: no ducking
+  const k = t.antic || t.blind ? (motion ? ease(Math.min(1, t.age / RISE_TIME)) : 1) : exposure(t.age, t.deadline, motion); // busy clowning: no ducking
   return { x: slot.hideX + (slot.x - slot.hideX) * k, y: slot.hideY + (slot.y - slot.hideY) * k, z: slot.z };
 }
 

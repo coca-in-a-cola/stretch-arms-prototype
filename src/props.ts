@@ -47,7 +47,7 @@ export const PROPS: Record<PropKind, PropSpec> = {
   melon: p('gen_melon.png', 'арбуз', .64, .8, [.031, .969, .006, .821], 2.5, 20, 12, 20, true, ['#3aa860', '#ff4f6d', '#1f1f1f']),
   fish: p('gen_fish.png', 'рыба', .72, .9, [.031, .969, .006, .514], 1, 12, 12, 14, false),
   anvil: p('gen_anvil.png', 'наковальня', .8, 1, [.031, .969, .006, .531], 7, 45, 22, 36, false),
-  chicken: p('gen_chicken.png', 'резиновая курица', .5, .62, [.252, .748, .006, .969], .5, 8, 12, 10, false),
+  chicken: p('gen_chicken.png', 'резиновая курица', .5, .62, [.252, .748, .006, .969], .5, 3, 12, 10, false),
   bowling: p('gen_bowling.png', 'шар для боулинга', .4, .5, [.031, .969, .006, .75], 4, 30, 16, 26, false),
   flowerpot: p('gen_flowerpot.png', 'цветочный горшок', .56, .7, [.137, .863, .006, .969], 1.5, 15, 12, 16, true, ['#e07a3a', '#6b4a32', '#ffffff']),
   pie: p('gen_pie.png', 'кремовый пирог', .56, .7, [.031, .969, .006, .577], .8, 10, 12, 12, true, ['#fff3d6', '#ff4f6d', '#f1c27d']),

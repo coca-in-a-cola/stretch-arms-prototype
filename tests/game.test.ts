@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { PROPS, REACH_COST } from '../src/props';
-import { Game, ENEMY_HP, PUNCH_DAMAGE, healthBarAlpha, readProgress, loadProgress, resultActions, PROGRESS_KEY, LEGACY_PROGRESS_KEY, type Progress } from '../src/game';
+import { Game, ANTIC, ENEMY_HP, PUNCH_DAMAGE, healthBarAlpha, readProgress, loadProgress, resultActions, PROGRESS_KEY, LEGACY_PROGRESS_KEY, type Progress } from '../src/game';
 
 describe('deterministic arcade rules', () => {
   test('the bar is level 1 (open from the start); the merged street is level 2 and spawns across depth layers on both halves', () => {
@@ -12,7 +12,7 @@ describe('deterministic arcade rules', () => {
     const slots = g.layout.slots, used = [...new Set(g.layout.order.slice(0, 9))].map(i => slots[i]);
     expect(new Set(used.map(s => s.layer))).toEqual(new Set(['foreground', 'midground', 'background']));
     expect(used.some(s => s.x < -6)).toBe(true); expect(used.some(s => s.x > 6)).toBe(true); // yard half and alley half
-    expect(g.actors.filter(t => t.kind === 'enemy').every(t => t.deadline === 5.4)).toBe(true);
+    expect(g.actors.filter(t => t.kind === 'enemy').every(t => t.deadline === 5.4 + (t.antic ? ANTIC.len : 0))).toBe(true); // clowning bullies swing later
     // Never more than five bullies out at once on the wide street.
     const h = new Game({version:2,unlocked:2,best:0}); h.start(2); for (let i = 0; i < 12; i++) h.spawn();
     expect(h.actors.filter(t => t.kind === 'enemy').length).toBe(5);
@@ -70,7 +70,7 @@ describe('deterministic arcade rules', () => {
     expect(g.start(2)).toBe(true);g.hp=1;g.held='barrel';g.combo=8;g.start(2);expect(g.hp).toBe(5);expect(g.stamina).toBe(100);expect(g.held).toBeNull();expect(g.combo).toBe(0);expect(g.score).toBe(0);
   });
   test('five missed attack deadlines lose; result blocks actions',()=>{
-    const g=new Game();g.start(1);for(let i=0;i<5;i++)g.tick(7);expect(g.mode).toBe('result');expect(g.won).toBe(false);expect(g.hp).toBe(0);expect(g.act('punch')).toBe('blocked');
+    const g=new Game();g.start(1);for(let i=0;i<5;i++)g.tick(8.5);expect(g.mode).toBe('result');expect(g.won).toBe(false);expect(g.hp).toBe(0);expect(g.act('punch')).toBe('blocked');
   });
   test('malformed, wrong-version and invalid progress are safe',()=>{
     for(const raw of [null,'oops','null','{}','{"version":3,"unlocked":2,"best":99}','{"version":2,"unlocked":3,"best":1}','{"version":2,"unlocked":2,"best":-1}','{"version":1,"unlocked":7,"best":1}'])expect(readProgress(raw)).toEqual({version:2,unlocked:1,best:0});

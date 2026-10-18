@@ -16,16 +16,27 @@ export interface Flight {
   id: number; kind: PropKind; pos: Vec3; vel: Vec3; age: number;
   /** Visual spin (radians) — heavier props tumble slower. */ angle: number; spin: number;
   /** Already struck something (it only damages once; afterwards it is just falling). */ struck: boolean;
+  /** Anvil: seconds until it is right above the aim point; then it hangs a beat and drops straight down like a cartoon. */ drop?: number; dropped?: boolean;
+  /** Bowling ball: rolling along the ground, and every character it has already bowled over (multi-hit). */ rolling?: boolean; hits?: (number | string)[];
 }
+/** The anvil flies to a point this high above the aim, stops dead in the air for HANG seconds, then plummets. */
+export const ANVIL = { above: 2.4, hang: .16 } as const;
+/** The bowling ball rolls on after landing: at least this fast along the ground, losing speed to friction. */
+export const BOWL = { radius: .2, minSpeed: 6.5, friction: .3, stop: .9 } as const;
 export type Impact =
   | { type: 'hit'; kind: HitKind; id: number | string; point: Vec3 }
   | { type: 'rest'; point: Vec3; on: number | string | 'ground' };
 
 /** Launch velocity for an arc that passes through `to` after flightTime(). */
-export function launch(id: number, kind: PropKind, from: Vec3, to: Vec3): Flight {
+export function launch(id: number, kind: PropKind, from: Vec3, aim: Vec3): Flight {
+  // The anvil's drop point sits a hair behind the struck face (aim points lie on a body's front plane), so it lands on the body.
+  const to = kind === 'anvil' ? { ...aim, y: aim.y + ANVIL.above, z: aim.z - .04 } : aim;
   const d = { x: to.x - from.x, y: to.y - from.y, z: to.z - from.z }, T = flightTime(kind, Math.hypot(d.x, d.y, d.z));
   const vel = { x: d.x / T, y: d.y / T - .5 * GRAVITY * T, z: d.z / T };
-  return { id, kind, pos: { ...from }, vel, age: 0, angle: 0, spin: (to.x >= from.x ? -1 : 1) * 11 / Math.sqrt(PROPS[kind].mass), struck: false };
+  const f: Flight = { id, kind, pos: { ...from }, vel, age: 0, angle: 0, spin: (to.x >= from.x ? -1 : 1) * 11 / Math.sqrt(PROPS[kind].mass), struck: false };
+  if (kind === 'anvil') f.drop = T;
+  if (kind === 'bowling') f.hits = [];
+  return f;
 }
 
 /** Characters: a flying prop strikes one once, then pops off it. */
@@ -43,12 +54,24 @@ export function step(f: Flight, dt: number, world: readonly Hittable[]): Impact[
   let left = dt;
   while (left > 1e-9) {
     const h = Math.min(left, 1 / 120); left -= h; f.age += h; f.angle += f.spin * h;
+    if (f.drop !== undefined && !f.dropped && f.age >= f.drop) {
+      // Right above the aim point: stop dead (no fall during the hang), then straight down.
+      f.vel = { x: 0, y: 0, z: 0 }; f.spin = 0; f.angle = 0;
+      if (f.age < f.drop + ANVIL.hang) continue;
+      f.dropped = true; f.vel.y = -3;
+    }
+    if (f.rolling) { // friction; a slow ball stops where it is
+      const sp = Math.hypot(f.vel.x, f.vel.z), k = Math.max(0, 1 - BOWL.friction * h);
+      f.vel.x *= k; f.vel.z *= k; f.spin = -sp * 2.5;
+      if (sp < BOWL.stop) { out.push({ type: 'rest', point: { x: f.pos.x, y: 0, z: f.pos.z }, on: 'ground' }); return out; }
+    }
     const next = { x: f.pos.x + f.vel.x * h, y: f.pos.y + f.vel.y * h, z: f.pos.z + f.vel.z * h };
-    f.vel.y += GRAVITY * h;
+    if (!f.rolling) f.vel.y += GRAVITY * h;
     const seg = { x: next.x - f.pos.x, y: next.y - f.pos.y, z: next.z - f.pos.z }, len = Math.hypot(seg.x, seg.y, seg.z), dir = normalize(seg);
     let best: { t: number; hit: Hittable } | null = null;
     for (const w of world) {
-      if (w.kind === 'prop' || (f.struck && LIVING.has(w.kind)) || inside(f.pos, w)) continue;
+      if (w.kind === 'prop' || inside(f.pos, w)) continue;
+      if (LIVING.has(w.kind) && (f.hits ? f.hits.includes(w.id) : f.struck)) continue;
       const t = rayBox(f.pos, dir, w.min, w.max);
       if (t !== null && t <= len && (!best || t < best.t)) best = { t, hit: w };
     }
@@ -56,6 +79,11 @@ export function step(f: Flight, dt: number, world: readonly Hittable[]): Impact[
     const tGround = next.y <= 0 && f.pos.y > 0 ? len * f.pos.y / (f.pos.y - next.y) : Infinity;
     if (best && best.t <= tGround) {
       const w = best.hit, p = { x: f.pos.x + dir.x * best.t, y: f.pos.y + dir.y * best.t, z: f.pos.z + dir.z * best.t };
+      if (LIVING.has(w.kind) && f.hits) {
+        // The bowling ball bowls right through: every character once, losing a little speed each time.
+        f.struck = true; f.hits.push(w.id); out.push({ type: 'hit', kind: w.kind, id: w.id, point: p });
+        f.vel.x *= .85; f.vel.z *= .85; continue;
+      }
       if (LIVING.has(w.kind)) {
         f.struck = true; out.push({ type: 'hit', kind: w.kind, id: w.id, point: p });
         // Knocked off the victim: a little pop back toward the player, then it falls.
@@ -72,6 +100,12 @@ export function step(f: Flight, dt: number, world: readonly Hittable[]): Impact[
       if ('z' in n) f.vel.z = n.z! * Math.max(.6, Math.abs(f.vel.z)); else if ('x' in n) f.vel.x = n.x! * Math.max(.6, Math.abs(f.vel.x)); else f.vel.y = -Math.abs(f.vel.y);
       f.pos = { x: p.x + ('x' in n ? n.x! * .05 : 0), y: p.y + ('y' in n ? n.y! * .05 : 0), z: p.z + ('z' in n ? n.z! * .05 : 0) };
       f.spin *= -.5;
+      continue;
+    }
+    if (tGround !== Infinity && f.hits && !f.rolling) {
+      // The bowling ball lands and rolls on down its lane (keeps its heading, at least BOWL.minSpeed).
+      const k = tGround / Math.max(len, 1e-9), sp = Math.hypot(f.vel.x, f.vel.z) || 1, v = Math.max(BOWL.minSpeed, sp);
+      f.pos = { x: f.pos.x + seg.x * k, y: BOWL.radius, z: f.pos.z + seg.z * k }; f.vel = { x: f.vel.x / sp * v, y: 0, z: f.vel.z / sp * v }; f.rolling = true;
       continue;
     }
     if (tGround !== Infinity) { const k = tGround / Math.max(len, 1e-9); out.push({ type: 'rest', point: { x: f.pos.x + seg.x * k, y: 0, z: f.pos.z + seg.z * k }, on: 'ground' }); return out; }
