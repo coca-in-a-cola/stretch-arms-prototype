@@ -477,7 +477,9 @@ const pointer = new THREE.Vector2(0, 0);
 let lastMode = '';
 let lastHp = game.hp;
 const DURATION = .42, ARRIVE = .36, RELEASE = .62;
-interface Swing { action: Action; throwing: boolean; /** Click point as a fraction of the viewport, so a rotation mid-swing keeps the fist on it. */ spot: Pt; ray: { origin: Vec3; direction: Vec3 }; shot: Shot; phase: number; resolved: boolean; outcome?: Outcome; held: BodyKind | null; staminaBefore: number; staminaAfter: number; }
+/** A throw is a quick whip: the glove snaps a short way toward the aim and lets go at WHIP.arrive; the prop flies on alone. */
+const WHIP = { duration: .34, arrive: .3, release: .46, reach: .38 } as const;
+interface Swing { action: Action; throwing: boolean; /** Throws only: whether the prop has left the hand yet. */ launched?: boolean; /** Click point as a fraction of the viewport, so a rotation mid-swing keeps the fist on it. */ spot: Pt; ray: { origin: Vec3; direction: Vec3 }; shot: Shot; phase: number; resolved: boolean; outcome?: Outcome; held: BodyKind | null; staminaBefore: number; staminaAfter: number; }
 let swing: Swing | null = null;
 let shake = 0, hitstop = 0, timeScale = 1;
 const strikes: { action: Action; outcome: Outcome; kind: string; id: number | string | null; staminaBefore: number; staminaAfter: number }[] = [];
@@ -519,7 +521,7 @@ function perform(action: Action) {
   sound('whoosh');
   const spot = { x: (pointer.x + 1) / 2, y: (1 - pointer.y) / 2 };
   swing = { action, throwing, spot, ray, shot: resolveShot(ray.origin, ray.direction, currentHittables()), phase: 0, resolved: false, held, staminaBefore, staminaAfter: game.stamina };
-  if (!motion()) land(swing);
+  if (!motion()) { if (throwing) release(swing); else land(swing); }
   updateHud();
 }
 
@@ -539,9 +541,66 @@ function drainEvents(at?: { x: number; y: number }) {
     if (e.type === 'attack') { exits.set(e.id, 'attack'); sound('attack'); callout('БАЦ! −♥', p.x, p.y, 'bad'); if (motion()) shake = .22; }
     if (e.type === 'dog') { if (v) v.sad = 2.4; sound('dog'); callout(game.ult.phase === 'pour' ? 'ПЁС ОСКОРБЛЁН!' : 'ПСА НЕ ТРОГАЙ!', p.x, p.y - 60, 'bad'); }
     if (e.type === 'ult') startUlt();
+    if (e.type === 'land' && e.point) sound('thud');
+    if (e.type === 'shatter' && e.point && e.prop) { shatter(e.point, PROPS[e.prop].shards ?? ['#ffffff']); pop('smash', e.point, .8); }
     if (e.type === 'ultEnd') { sound('slide'); callout('ФЬЮ-У-У…', innerWidth / 2, innerHeight * .6, 'pop'); }
   }
   game.events.length = 0;
+}
+
+/** Where the glove is in a throw's whip: a short way from its rest spot toward the aim. */
+function whipSpot(s: Swing): Pt {
+  const W = innerWidth, H = innerHeight, rest = restPose(1, W, H, avoidRect).glove; // the prop is held in the right hand
+  return { x: rest.x + (s.spot.x * W - rest.x) * WHIP.reach, y: rest.y + (s.spot.y * H - rest.y) * WHIP.reach - H * .05 };
+}
+/** Let go: the prop leaves the glove (at its screen spot, ~1.7 m in front of the camera) and flies at the aim point. */
+function release(s: Swing) {
+  s.launched = true; s.resolved = true;
+  const g = whipSpot(s); raycaster.setFromCamera(new THREE.Vector2(g.x / innerWidth * 2 - 1, 1 - g.y / innerHeight * 2), camera);
+  const from = raycaster.ray.at(1.7, new THREE.Vector3());
+  const f = game.launch({ x: from.x, y: from.y, z: from.z }, s.shot.point);
+  s.outcome = 'throw'; strikes.push({ action: 'grab', outcome: 'throw', kind: 'flight', id: f?.id ?? null, staminaBefore: s.staminaBefore, staminaAfter: s.staminaAfter }); if (strikes.length > 20) strikes.shift();
+  sound('toss'); renderUi();
+}
+/** Screen-space comic bursts not tied to the glove (thrown-prop impacts land wherever the prop does). */
+const pops: { key: string; x: number; y: number; size: number; age: number }[] = [];
+/** Cartoon pieces of a broken prop. */
+const shards: { x: number; y: number; vx: number; vy: number; rot: number; vr: number; size: number; color: string; life: number }[] = [];
+function pop(key: string, at: Vec3, scale = 1) {
+  const p = toScreen(at), q = toScreen({ ...at, x: at.x + 1 }), unit = Math.abs(q.x - p.x);
+  pops.push({ key, x: p.x, y: p.y, size: THREE.MathUtils.clamp(unit * 1.6, 70, 260) * scale, age: 0 });
+}
+function shatter(at: Vec3, colors: readonly string[]) {
+  const p = toScreen(at), q = toScreen({ ...at, x: at.x + 1 }), unit = THREE.MathUtils.clamp(Math.abs(q.x - p.x), 30, 200);
+  for (let i = 0; i < 14; i++) { const a = -Math.PI / 2 + (Math.random() - .5) * 2.6, v = unit * (2 + Math.random() * 3); shards.push({ x: p.x, y: p.y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, rot: Math.random() * 6, vr: (Math.random() - .5) * 18, size: unit * (.07 + Math.random() * .09), color: colors[i % colors.length], life: .7 + Math.random() * .4 }); }
+}
+/** Thrown props in the air: their own spinning sprite plus a ground shadow that sells the height. */
+const flightViews = new Map<number, { mesh: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial>; shadow: THREE.Mesh }>();
+function syncFlights() {
+  for (const [id, v] of flightViews) if (!game.flights.some(f => f.id === id)) { actorGroup.remove(v.mesh, v.shadow); v.mesh.geometry.dispose(); v.mesh.material.dispose(); flightViews.delete(id); }
+  for (const f of game.flights) {
+    let v = flightViews.get(f.id); const c = BODY[f.kind];
+    if (!v) {
+      const mesh = new THREE.Mesh(new THREE.PlaneGeometry(c.w, c.h), new THREE.MeshBasicMaterial({ map: textures[f.kind], alphaTest: .5, side: THREE.DoubleSide })); mesh.castShadow = true;
+      const shadow = new THREE.Mesh(new THREE.CircleGeometry(c.w * .3, 18), blob); shadow.rotation.x = -Math.PI / 2; shadow.renderOrder = 1;
+      actorGroup.add(mesh, shadow); v = { mesh, shadow }; flightViews.set(f.id, v);
+    }
+    v.mesh.position.set(f.pos.x, f.pos.y + c.h * .35, f.pos.z); v.mesh.rotation.z = motion() ? f.angle : 0;
+    v.shadow.position.set(f.pos.x, .035, f.pos.z); const k = Math.max(.35, 1 - f.pos.y / 6); v.shadow.scale.set(k, k * .45, 1);
+  }
+}
+function flyProps(dt: number) {
+  if (game.mode !== 'play' || hitstop > 0) return;
+  for (const { flight, impact } of game.fly(dt, currentHittables())) {
+    if (impact.type === 'rest') continue; // the 'land' event plays the thud
+    const id = impact.id;
+    if (impact.kind === 'enemy') { sound('throw'); pop('throw', impact.point); if (motion()) { shake = .16; hitstop = .06; } }
+    else if (impact.kind === 'dog') pop('protected', impact.point);
+    else { sound('cover'); pop('cover', impact.point, .7); if (typeof id === 'string') { const c = coverMeshes.get(id); if (c) c.userData.wobble = 1; } if (motion()) shake = .06; }
+    if (typeof id === 'number') { const v = views.get(id); if (v) v.flash = 1; }
+    if (PROPS[flight.kind].breakable) sound('shatter');
+  }
+  drainEvents();
 }
 
 /** Arrival: re-cast the same ray against the scene as it is *now* (actors keep moving while the fist flies). */
@@ -638,7 +697,7 @@ document.addEventListener('freeze', suspendPage);
 addEventListener('pagehide', suspendPage);
 
 function button(id: string, handler: () => void) { document.getElementById(id)?.addEventListener('click', () => { unlockAudio(); sound('ui'); handler(); }); }
-function startLevel(level: number) { if (game.start(level)) { pan = 0; panVel = 0; lastMode = ''; damageNumbers.length = 0; } renderUi(); }
+function startLevel(level: number) { if (game.start(level)) { pan = 0; panVel = 0; lastMode = ''; damageNumbers.length = 0; pops.length = 0; shards.length = 0; } renderUi(); }
 function chrome() { return '<div class="topline"><div class="brand"><span>↗</span> ДВОР ДА ДЕЛО</div><div class="tag">РУКИ ДЛИННЕЕ. ДЕНЬ ЛУЧШЕ.</div></div>'; }
 
 function renderUi() {
@@ -720,7 +779,7 @@ function updateHud() {
   if (canvas.dataset.ult !== ult) canvas.dataset.ult = ult;
   set('message', game.message);
   const energy = document.getElementById('energy'); if (energy) energy.style.width = game.stamina + '%';
-  const grab = document.getElementById('grab'); if (grab) grab.innerHTML = game.held ? 'БРОСАЙ ↗<small>' + (game.held === 'hat' ? 'КОТЕЛОК' : 'В ЗАДИРУ') + ' · ' + costOf('grab', true) + ' СИЛ</small>' : 'ХВАТАЙ ◎<small>ПКМ / E · 12 СИЛ</small>';
+  const grab = document.getElementById('grab'); if (grab) grab.innerHTML = game.held ? 'БРОСАЙ ↗<small>' + PROPS[game.held].name.toUpperCase() + ' · ' + costOf('grab', true, game.held) + ' СИЛ</small>' : 'ХВАТАЙ ◎<small>ПКМ / E · 12 СИЛ</small>';
 }
 
 /**
@@ -879,9 +938,21 @@ function drawArm(time: number) {
   const { ink, rim } = armMetrics(W, H), avoid = avoidRect, s = swing, k = s ? s.phase : 1;
   drawHealthBars(g, dt, ink);
   const spot = s ? { x: s.spot.x * W, y: s.spot.y * H } : { x: 0, y: 0 };
-  const active = s && k < 1 ? sideFor(spot, W) : 0;
+  const active = s && k < 1 ? (s.throwing ? 1 : sideFor(spot, W)) : 0;
   // Impact burst sits behind the glove so the fist stays readable on contact.
-  if (s && s.resolved && k < .8) {
+  for (let i = pops.length - 1; i >= 0; i--) {
+    const p = pops[i]; p.age += dt; if (p.age > .5) { pops.splice(i, 1); continue; }
+    const a = p.age / .5, size = p.size * (a < .15 ? .6 + a * 4 : 1.2 - a * .2);
+    g.save(); g.globalAlpha = Math.max(0, 1 - Math.max(0, a - .5) * 2); g.translate(p.x, p.y); g.drawImage(bursts[p.key] ?? bursts.miss, -size / 2, -size / 2, size, size); g.restore();
+  }
+  for (let i = shards.length - 1; i >= 0; i--) {
+    const d = shards[i]; d.life -= dt; if (d.life <= 0) { shards.splice(i, 1); continue; }
+    d.vy += H * 2.2 * dt; d.x += d.vx * dt; d.y += d.vy * dt; d.rot += d.vr * dt;
+    g.save(); g.translate(d.x, d.y); g.rotate(d.rot); g.globalAlpha = Math.min(1, d.life * 3);
+    g.beginPath(); g.moveTo(-d.size, d.size * .6); g.lineTo(0, -d.size); g.lineTo(d.size * .8, d.size * .4); g.closePath();
+    g.fillStyle = d.color; g.fill(); g.lineWidth = Math.max(1.5, ink * .3); g.strokeStyle = '#151715'; g.stroke(); g.restore();
+  }
+  if (s && s.resolved && !s.throwing && k < .8) {
     const a = (k - ARRIVE) / (.8 - ARRIVE), key = s.outcome && bursts[s.outcome] ? s.outcome : 'miss';
     const size = (key === 'miss' ? .9 : 1.6) * armMetrics(W, H).r * 2 * Math.max(.5, Math.min(1.2, 6.5 / Math.max(3, s.shot.distance))) * (a < .2 ? .6 + a * 3 : 1.2 - a * .2);
     g.save(); g.globalAlpha = Math.max(0, 1 - Math.max(0, a - .5) * 2); g.translate(spot.x, spot.y); g.rotate(-s.ray.direction.x * .4);
@@ -890,8 +961,8 @@ function drawArm(time: number) {
   for (const side of [-1, 1] as const) {
     const bob = motion() ? Math.sin(time * 2.4 + (side > 0 ? 0 : 1.3)) * H * .006 : 0;
     let arm = restPose(side, W, H, avoid, bob);
-    if (s && side === active) arm = punchPose(side, W, H, spot, k, { arrive: ARRIVE, release: RELEASE }, { depth: 6.5 / Math.max(3, s.shot.distance), grab: s.action === 'grab', throwing: s.throwing, avoid });
-    const holding = game.held && side === 1 && !(s && s.throwing && active === 1 && k >= ARRIVE);
+    if (s && side === active) arm = s.throwing ? punchPose(side, W, H, whipSpot(s), k, WHIP, { throwing: true, avoid }) : punchPose(side, W, H, spot, k, { arrive: ARRIVE, release: RELEASE }, { depth: 6.5 / Math.max(3, s.shot.distance), grab: s.action === 'grab', avoid });
+    const holding = game.held && side === 1 && !(s && s.throwing && active === 1);
     if (holding) arm = { ...arm, open: true };
     // Speed lines trail the fist while it flies out.
     if (s && side === active && k > .08 && k < ARRIVE && motion()) {
@@ -900,7 +971,7 @@ function drawArm(time: number) {
       for (const o of [-1, 1]) { const off = arm.w1 / 2 + arm.r * .45, ox = -uy * o * off, oy = ux * o * off; g.beginPath(); g.moveTo(arm.glove.x - ux * arm.r * 2.4 + ox, arm.glove.y - uy * arm.r * 2.4 + oy); g.lineTo(arm.glove.x - ux * arm.r * 1.25 + ox, arm.glove.y - uy * arm.r * 1.25 + oy); g.stroke(); }
     }
     inkArm(g, arm, ink, rim);
-    const item = holding ? game.held : s && s.throwing && s.held && side === active && k < ARRIVE ? s.held : null;
+    const item = holding ? game.held : s && s.throwing && s.held && side === active && !s.launched ? s.held : null;
     if (item) {
       const img = textures[item].image as CanvasImageSource, h = arm.r * 2.2, w = h * BODY[item].w / BODY[item].h;
       g.save(); g.translate(arm.glove.x, arm.glove.y - arm.r * .5); g.rotate(motion() ? Math.sin(time * 2) * .07 : 0); g.drawImage(img, -w / 2, -h * .8, w, h); g.restore();
@@ -927,12 +998,14 @@ function frame() {
   if (game.mode === 'play') { updateHud(); if ((measureTick -= dt) <= 0) { measureTick = .25; measureControls(); } }
 
   if (swing && game.mode !== 'pause') {
-    swing.phase = Math.min(1, swing.phase + dt / DURATION);
-    if (!swing.resolved && swing.phase >= ARRIVE) land(swing);
+    swing.phase = Math.min(1, swing.phase + dt / (swing.throwing ? WHIP.duration : DURATION));
+    if (swing.throwing && !swing.launched && swing.phase >= WHIP.arrive) release(swing);
+    else if (!swing.throwing && !swing.resolved && swing.phase >= ARRIVE) land(swing);
     if (swing.phase >= 1) swing = null;
   }
   if (game.mode !== 'play' && game.mode !== 'pause') swing = null;
 
+  flyProps(dt); syncFlights();
   animateLeaving(dt, runtime);
   for (const cover of coverMeshes.values()) {
     const w = cover.userData.wobble as number | undefined; if (!w) continue;
@@ -977,6 +1050,7 @@ if (import.meta.env.DEV) {
         }
         return out;
       },
+      flights: () => game.flights.map(f => ({ id: f.id, kind: f.kind, pos: f.pos, struck: f.struck })),
       swing: () => swing ? { phase: swing.phase, resolved: swing.resolved, outcome: swing.outcome ?? null, shot: swing.shot.kind } : null,
       setTimeScale(v: number) { timeScale = v; },
       setPan(x: number) { pan = clampPan(game.level, x); resizeCameraShake(0); return pan; },

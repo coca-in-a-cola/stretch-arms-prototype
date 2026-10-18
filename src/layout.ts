@@ -11,15 +11,16 @@ export type Skin = 'cat' | 'walrus' | 'bulldog' | 'weasel';
 export interface Cover { id: string; look: CoverLook; layer: Layer; min: Vec3; max: Vec3; color: string; }
 /** Enemy spawn point behind a cover. `hide` is where the sprite waits fully occluded; it slides/rises to `x,y`. */
 export interface Slot { x: number; y: number; z: number; layer: Layer; hideX: number; hideY: number; skin?: Skin; }
+export interface PlacedProp { kind: PropKind; x: number; y: number; z: number; }
 export interface LevelLayout {
   name: string; look: 'bar' | 'street';
   /** Half-width of the camera pan range (0 = a single screen). */
   pan: number;
-  covers: Cover[]; slots: Slot[]; order: number[]; dogs: Vec3[]; prop: Vec3; deadline: number; goal: number;
+  covers: Cover[]; slots: Slot[]; order: number[]; dogs: Vec3[]; deadline: number; goal: number;
   /** Cap on enemies out at once (wide levels). */
   maxAlive?: number;
-  /** Throwables that respawn on the floor, alternating. */
-  props?: [PropKind, PropKind];
+  /** Throwables scattered over the map from the start (floor, counter, cover tops). They never respawn. */
+  props: PlacedProp[];
   /** Secret hat spot (on a stool) and the landing zone it must be thrown onto: the top band of a cover. */
   hat?: Vec3; landing?: { cover: string; band: number };
 }
@@ -130,8 +131,12 @@ const bar: LevelLayout = {
   ],
   order: [0, 1, 2, 3, 4],
   dogs: [{ x: .2, y: 0, z: -.7 }],
-  prop: { x: -.9, y: 0, z: 3.8 },
-  props: ['mug', 'whiskey'],
+  props: [
+    { kind: 'mug', x: -3.25, y: 1.3, z: 3.0 }, { kind: 'whiskey', x: 2.6, y: 1.05, z: 3.05 }, { kind: 'eggs', x: 3.3, y: 1.05, z: 3.25 }, // piano lid, table
+    { kind: 'mug', x: -2.3, y: 1.15, z: -2.12 }, { kind: 'shaker', x: -1.5, y: 1.15, z: -2.12 }, { kind: 'whiskey', x: 3.05, y: 1.15, z: -2.12 }, // counter
+    { kind: 'stool', x: -.95, y: 0, z: 3.9 }, { kind: 'spittoon', x: 1.95, y: 0, z: 4.0 }, { kind: 'plunger', x: -1.6, y: 0, z: 1.1 },
+    { kind: 'mug', x: .5, y: 0, z: 1.05 }, { kind: 'whiskey', x: -4.4, y: 0, z: 1.5 }, { kind: 'stool', x: 4.3, y: 0, z: .9 }, { kind: 'eggs', x: -3.3, y: 0, z: -.3 },
+  ],
   hat: { x: .95, y: .78, z: 3.45 },
   landing: { cover: 'counter', band: .4 },
 };
@@ -144,7 +149,18 @@ const street: LevelLayout = {
   // Yard slots are 0..5, alley slots 6..12: alternate so both ends of the street stay busy.
   order: [0, 6, 4, 9, 2, 7, 3, 11, 1, 8, 5, 12, 10],
   dogs: [{ x: .45 + YARD_X, y: 0, z: -.85 }, { x: 2.3 + ALLEY_X, y: 0, z: -1.25 }],
-  prop: { x: -.7, y: 0, z: 3.75 },
+  props: [
+    // Yard (left half)
+    { kind: 'bottle', x: -8.6, y: 0, z: 3.8 }, { kind: 'barrel', x: -12.7, y: 0, z: 3.6 }, { kind: 'melon', x: -7.2, y: 0, z: 1.2 },
+    { kind: 'fish', x: -4.95, y: 1.87, z: 3.05 }, { kind: 'flowerpot', x: -10.75, y: 1.15, z: 3.0 }, { kind: 'pie', x: -9.92, y: .98, z: 3.35 },
+    { kind: 'chicken', x: -6.1, y: 0, z: .4 }, { kind: 'tire', x: -13.6, y: 0, z: 1.0 }, { kind: 'bowling', x: -3.1, y: 0, z: 3.9 }, { kind: 'bottle', x: -11.6, y: 0, z: .3 },
+    // Where the yard meets the alley
+    { kind: 'hydrant', x: .6, y: 0, z: 2.7 }, { kind: 'bottle', x: -1.1, y: 0, z: 1.0 }, { kind: 'anvil', x: 2.3, y: 0, z: 3.9 },
+    // Alley (right half)
+    { kind: 'barrel', x: 3.4, y: 0, z: 3.6 }, { kind: 'bottle', x: 4.9, y: 1.22, z: 3.0 }, { kind: 'melon', x: 7.7, y: 0, z: 1.0 },
+    { kind: 'fish', x: 10.8, y: 1.3, z: 3.15 }, { kind: 'pie', x: 9.0, y: 0, z: 3.9 }, { kind: 'tire', x: 12.7, y: 0, z: 3.5 },
+    { kind: 'flowerpot', x: 10.0, y: 1.02, z: -1.9 }, { kind: 'chicken', x: 8.1, y: 0, z: -.2 }, { kind: 'bowling', x: 13.7, y: 0, z: 1.4 }, { kind: 'bottle', x: 14.3, y: 0, z: 3.7 },
+  ],
 };
 
 export const LEVELS: Record<number, LevelLayout> = { 1: bar, 2: street };

@@ -1,6 +1,8 @@
 import type { HitKind, Vec3 } from './aim';
 import { LEVELS, LAST_LEVEL, WINDUP, onLanding, type Layer, type PropKind, type Skin } from './layout';
 import { PROPS, REACH_COST } from './props';
+import { launch, step, type Flight, type Impact } from './throw';
+import type { Hittable } from './aim';
 
 export type Mode = 'menu' | 'select' | 'play' | 'pause' | 'result';
 export type Kind = 'enemy' | 'dog' | PropKind;
@@ -11,7 +13,11 @@ export interface Actor {
   hp?: number; maxHp?: number; hurtAt?: number;
 }
 /** Things that just happened, drained by the renderer to play attack / knockout / sad-dog / ult animations. */
-export interface GameEvent { type: 'attack' | 'ko' | 'dog' | 'smash' | 'ult' | 'ultEnd' | 'hatBack' | 'hurt'; id: number; combo: number; /** Damage dealt ('hurt'). */ amount?: number; }
+export interface GameEvent {
+  type: 'attack' | 'ko' | 'dog' | 'smash' | 'ult' | 'ultEnd' | 'hatBack' | 'hurt' | 'land' | 'shatter' | 'thud';
+  id: number; combo: number; /** Damage dealt ('hurt'). */ amount?: number;
+  /** World point of a landing / shatter / thrown-prop impact, and the prop kind. */ point?: Vec3; prop?: PropKind;
+}
 export interface Progress { version: 2; unlocked: number; best: number; }
 export type Action = 'punch' | 'grab';
 export type Outcome = 'hit' | 'grab' | 'throw' | 'protected' | 'smash' | 'cover' | 'miss' | 'tired' | 'blocked' | 'ult';
@@ -55,24 +61,29 @@ export function healthBarAlpha(t: Pick<Actor, 'hurtAt'>, now: number) {
   const s = now - t.hurtAt; return s < HEALTHBAR.hold ? 1 : Math.max(0, 1 - (s - HEALTHBAR.hold) / HEALTHBAR.fade);
 }
 
+const layerAt = (z: number): Layer => z > 1.5 ? 'foreground' : z > -5 ? 'midground' : 'background';
+
 export class Game {
   mode: Mode = 'menu'; level = 1; hp = 5; stamina = 100; score = 0; combo = 0; elapsed = 0; held: PropKind | null = null;
-  ult: { phase: UltPhase; t: number; meter: number } = { phase: 'none', t: 0, meter: 0 }; dogSoak = 0;
-  actors: Actor[] = []; events: GameEvent[] = []; progress: Progress; won = false; defeated = 0; spawned = 0; spawnClock = 0; nextId = 1;
+  ult: { phase: UltPhase; t: number; meter: number; /** Seconds of the pour that went into the hat. */ hat: number } = { phase: 'none', t: 0, meter: 0, hat: 0 }; dogSoak = 0;
+  /** Where the bowler sits on the counter once the ult is on (upside down, as a receptacle). */
+  hatRest: (Vec3 & { flipped: boolean }) | null = null;
+  actors: Actor[] = []; events: GameEvent[] = []; flights: Flight[] = []; progress: Progress; won = false; defeated = 0; spawned = 0; spawnClock = 0; nextId = 1;
   message = 'Двор ждёт своих героев';
   constructor(progress = freshProgress(), private save: (p: Progress) => void = () => {}) { this.progress = progress; }
   get layout() { return LEVELS[this.level]; }
   get goal() { return this.layout.goal; }
   start(level: number) {
     if (level > this.progress.unlocked) return false;
-    this.level = level; this.hp = 5; this.stamina = 100; this.score = 0; this.combo = 0; this.elapsed = 0; this.held = null; this.actors = []; this.events = []; this.won = false; this.defeated = 0; this.spawned = 0; this.spawnClock = 0; this.nextId = 1; this.mode = 'play'; this.message = this.layout.look === 'bar' ? 'Бар «Длинные руки». Ведите себя прилично.' : 'Улица большая — крути камеру к краям!';
-    this.ult = { phase: 'none', t: 0, meter: 0 }; this.dogSoak = 0;
+    this.level = level; this.hp = 5; this.stamina = 100; this.score = 0; this.combo = 0; this.elapsed = 0; this.held = null; this.actors = []; this.events = []; this.flights = []; this.won = false; this.defeated = 0; this.spawned = 0; this.spawnClock = 0; this.nextId = 1; this.mode = 'play'; this.message = this.layout.look === 'bar' ? 'Бар «Длинные руки». Ведите себя прилично.' : 'Улица большая — крути камеру к краям!';
+    this.ult = { phase: 'none', t: 0, meter: 0, hat: 0 }; this.dogSoak = 0; this.hatRest = null;
+    for (const p of this.layout.props) this.actors.push({ id: this.nextId++, kind: p.kind, x: p.x, y: p.y, z: p.z, layer: layerAt(p.z), age: 0, deadline: Infinity });
     this.spawn(); this.placeHat(); return true;
   }
   get ultActive() { return this.ult.phase === 'intro' || this.ult.phase === 'pour'; }
   /** The bowler sits on its stool until it is grabbed or the ult has been spent. */
   placeHat() {
-    const h = this.layout.hat; if (!h || this.ult.phase !== 'none' || this.held === 'hat' || this.actors.some(t => t.kind === 'hat')) return;
+    const h = this.layout.hat; if (!h || this.ult.phase !== 'none' || this.held === 'hat' || this.actors.some(t => t.kind === 'hat') || this.flights.some(f => f.kind === 'hat')) return;
     this.actors.push({ id: this.nextId++, kind: 'hat', ...h, layer: 'foreground', age: 0, deadline: Infinity });
   }
   /** One frame of the ult stream striking `hit`. Enemies soak up and get knocked out; the halo dog takes offence. */
@@ -96,7 +107,7 @@ export class Game {
   suspend() { if (this.mode === 'play') this.mode = 'pause'; }
   spawn() {
     if (this.spawned >= this.goal) return;
-    const { order, slots, dogs, prop, deadline, maxAlive } = this.layout;
+    const { order, slots, dogs, deadline, maxAlive } = this.layout;
     const slot = order[this.spawned % order.length];
     if (this.actors.some(t => t.kind === 'enemy' && t.slot === slot)) return;
     if (maxAlive && this.actors.filter(t => t.kind === 'enemy').length >= maxAlive) return;
@@ -105,17 +116,15 @@ export class Game {
     this.actors.push({ id: this.nextId++, kind: 'enemy', x: s.x, y: s.y, z: s.z, slot, layer: s.layer, age: 0, deadline, hp, maxHp: hp });
     this.spawned++;
     if (!this.actors.some(t => t.kind === 'dog')) for (const dog of dogs) this.actors.push({ id: this.nextId++, kind: 'dog', ...dog, layer: 'midground', age: 0, deadline: Infinity });
-    const [a, b] = this.layout.props ?? ['bottle', 'barrel'];
-    if (!this.actors.some(t => t.kind === a || t.kind === b) && !this.held) this.actors.push({ id: this.nextId++, kind: this.spawned % 2 ? a : b, ...prop, layer: 'foreground', age: 0, deadline: Infinity });
     if (s.skin) this.actors.find(t => t.kind === 'enemy' && t.slot === slot)!.skin = s.skin;
   }
   tick(dt: number) {
     if (this.mode !== 'play') return;
-    if (this.ult.phase === 'intro') { this.ult.t += dt; if (this.ult.t >= ULT.intro) { this.ult = { phase: 'pour', t: 0, meter: 1 }; this.message = 'Веди струю прицелом! Пса не задень.'; } return; } // everyone freezes
+    if (this.ult.phase === 'intro') { this.ult.t += dt; if (this.ult.t >= ULT.intro) { this.ult = { phase: 'pour', t: 0, meter: 1, hat: 0 }; this.message = 'Веди струю прицелом! Пса не задень.'; } return; } // everyone freezes
     const pouring = this.ult.phase === 'pour';
     if (pouring) {
       this.ult.t += dt; this.ult.meter = Math.max(0, 1 - this.ult.t / ULT.length); this.dogSoak = Math.max(0, this.dogSoak - dt);
-      if (this.ult.t >= ULT.length) { this.ult = { phase: 'done', t: 0, meter: 0 }; this.events.push({ type: 'ultEnd', id: 0, combo: this.combo }); this.message = 'Фух. Вот это облегчение.'; }
+      if (this.ult.t >= ULT.length) { this.ult = { ...this.ult, phase: 'done', t: 0, meter: 0 }; this.events.push({ type: 'ultEnd', id: 0, combo: this.combo }); this.message = 'Фух. Вот это облегчение.'; }
     }
     this.elapsed += dt; this.stamina = Math.min(100, this.stamina + dt * 21); this.spawnClock += dt;
     for (const t of [...this.actors]) {
@@ -143,15 +152,17 @@ export class Game {
     if (throwing) this.held = null;
     if (thrown === 'hat') {
       if (hit.kind === 'cover' && onLanding(this.level, hit.id, hit.point) && this.ult.phase === 'none') {
-        this.ult = { phase: 'intro', t: 0, meter: 1 }; this.combo = 0; this.events.push({ type: 'ult', id: 0, combo: 0 });
+        this.hatRest = { ...hit.point!, y: LEVELS[this.level].covers.find(c => c.id === hit.id)!.max.y, flipped: true };
+        this.ult = { phase: 'intro', t: 0, meter: 1, hat: 0 }; this.combo = 0; this.events.push({ type: 'ult', id: 0, combo: 0, point: this.hatRest });
         this.message = 'ДИНЬ! Шляпа на стойке…'; return 'ult';
       }
       this.placeHat(); this.events.push({ type: 'hatBack', id: 0, combo: 0 });
     }
     const t = typeof hit.id === 'number' ? this.actors.find(v => v.id === hit.id) : undefined;
+    if (throwing && thrown && thrown !== 'hat' && (!t || t.kind !== 'enemy') && hit.point) this.rest(thrown, { x: hit.point.x, y: 0, z: hit.point.z });
     if (hit.kind === 'cover') { this.combo = 0; this.message = throwing ? 'Бросок в укрытие. Жди, пока высунется!' : 'ТУК! Укрытие. Бей, когда высунется.'; return 'cover'; }
     if (!t) { this.combo = 0; this.message = hit.kind === 'scenery' ? 'Только стену поцарапал.' : throwing ? 'Бросок в никуда.' : 'Мимо! Чистый промах.'; return 'miss'; }
-    if (t.kind === 'dog') { this.score = Math.max(0, this.score - 150); this.hp = Math.max(0, this.hp - 1); this.combo = 0; this.events.push({ type: 'dog', id: t.id, combo: 0 }); this.message = 'Пёс — святой! −150 и сердце.'; if (!this.hp) this.finish(false); return 'protected'; }
+    if (t.kind === 'dog') { this.dogHit(t); return 'protected'; }
     if (t.kind === 'hat' && !(action === 'grab' && !throwing)) { this.combo = 0; this.message = 'Шляпу не бьют. Шляпу берут.'; return 'miss'; }
     if (t.kind !== 'enemy') {
       this.actors = this.actors.filter(v => v.id !== t.id);
@@ -163,6 +174,56 @@ export class Game {
     }
     if (action === 'punch' || throwing) { this.hurt(t, throwing && thrown ? PROPS[thrown].damage : PUNCH_DAMAGE, throwing); return throwing ? 'throw' : 'hit'; }
     this.combo = 0; this.message = 'Задиру — кулаком. Предмет — хватай!'; return 'miss';
+  }
+  /** Let go of the held prop: it flies on its own from `from` toward the aim point `to` (see throw.ts). */
+  launch(from: Vec3, to: Vec3): Flight | null {
+    if (this.mode !== 'play' || !this.held) return null;
+    const f = launch(this.nextId++, this.held, from, to); this.held = null; this.flights.push(f);
+    this.message = 'Полетел!'; return f;
+  }
+  /** Advance every prop in the air against the world; returns what happened this frame (for sound and FX). */
+  fly(dt: number, world: readonly Hittable[]): { flight: Flight; impact: Impact }[] {
+    const out: { flight: Flight; impact: Impact }[] = [];
+    if (this.mode !== 'play') return out;
+    for (const f of [...this.flights]) {
+      for (const impact of step(f, dt, world)) {
+        out.push({ flight: f, impact }); if (this.mode !== 'play') return out;
+        const spec = PROPS[f.kind];
+        if (impact.type === 'hit') {
+          const t = typeof impact.id === 'number' ? this.actors.find(v => v.id === impact.id) : undefined;
+          if (t?.kind === 'enemy') { if (spec.damage) this.hurt(t, spec.damage, true); else { this.combo = 0; this.message = 'Шляпу — не в задиру!'; } }
+          else if (t?.kind === 'dog') this.dogHit(t);
+          else { this.combo = 0; this.message = impact.kind === 'cover' ? 'Бросок в укрытие. Жди, пока высунется!' : 'Только стену задел.'; }
+          if (spec.breakable) { this.flights = this.flights.filter(v => v !== f); this.events.push({ type: 'shatter', id: f.id, combo: this.combo, point: impact.point, prop: f.kind }); break; }
+        } else {
+          this.flights = this.flights.filter(v => v !== f);
+          this.landed(f, impact.point, impact.on);
+        }
+      }
+    }
+    return out;
+  }
+  /** A flight came to rest. Props stay where they land; the hat is special (see below). */
+  private landed(f: Flight, point: Vec3, on: number | string) {
+    if (f.kind === 'hat') {
+      if (onLanding(this.level, on, point) && this.ult.phase === 'none') {
+        this.hatRest = { ...point, flipped: true }; // crown down, opening up: it is a receptacle now
+        this.ult = { phase: 'intro', t: 0, meter: 1, hat: 0 }; this.combo = 0; this.events.push({ type: 'ult', id: 0, combo: 0, point });
+        this.message = 'ДИНЬ! Шляпа на стойке — вверх дном.'; return;
+      }
+      // Behind the counter it would be out of reach for good: the bowler hops back onto its stool.
+      const counter = this.layout.covers.find(c => c.id === this.layout.landing?.cover);
+      if (counter && point.z < counter.min.z) { this.placeHat(); this.events.push({ type: 'hatBack', id: 0, combo: 0 }); return; }
+    }
+    if (!f.struck) { this.combo = 0; this.message = f.kind === 'hat' ? 'Мимо стойки. Подбери котелок и ещё раз!' : `Мимо! ${PROPS[f.kind].name[0].toUpperCase() + PROPS[f.kind].name.slice(1)} лежит — подбери.`; }
+    this.rest(f.kind, point);
+  }
+  private rest(kind: PropKind, point: Vec3) {
+    const t: Actor = { id: this.nextId++, kind, x: point.x, y: point.y, z: point.z, layer: layerAt(point.z), age: 0, deadline: Infinity };
+    this.actors.push(t); this.events.push({ type: 'land', id: t.id, combo: this.combo, point, prop: kind });
+  }
+  private dogHit(t: Actor) {
+    this.score = Math.max(0, this.score - 150); this.hp = Math.max(0, this.hp - 1); this.combo = 0; this.events.push({ type: 'dog', id: t.id, combo: 0 }); this.message = 'Пёс — святой! −150 и сердце.'; if (!this.hp) this.finish(false);
   }
   /** Damage an enemy: a hurt flash + number while it has HP left (and a stagger), a knockout when it runs out. */
   hurt(t: Actor, amount: number, throwing = false) {
@@ -192,7 +253,7 @@ export class Game {
   finish(won: boolean) {
     this.won = won; this.mode = 'result'; this.held = null;
     if (won) { this.progress.unlocked = Math.min(LAST_LEVEL, Math.max(this.progress.unlocked, this.level + 1)); this.score += this.hp * 100; }
-    if (this.ultActive) this.ult = { phase: 'done', t: 0, meter: 0 };
+    if (this.ultActive) this.ult = { ...this.ult, phase: 'done', t: 0, meter: 0 };
     this.progress.best = Math.max(this.progress.best, this.score); this.save({ ...this.progress });
   }
 }

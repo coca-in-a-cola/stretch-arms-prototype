@@ -21,7 +21,7 @@ export function unlockAudio(){
     if(context.state==='suspended')void context.resume().catch(()=>{audioAvailable=false;});
   } catch { audioAvailable=false; }
 }
-export type Sfx='ui'|'hit'|'throw'|'grab'|'miss'|'whoosh'|'ko'|'dog'|'attack'|'cover'|'windup'|'ding'|'slide'|'yuck';
+export type Sfx='ui'|'hit'|'throw'|'grab'|'miss'|'whoosh'|'ko'|'dog'|'attack'|'cover'|'windup'|'ding'|'slide'|'yuck'|'thud'|'shatter'|'toss';
 /** Tiny synth voices: [wave, start Hz, end Hz, length s, volume, noise mix]. */
 const VOICES:Record<Sfx,[OscillatorType,number,number,number,number,number][]>={
   ui:[['sine',520,300,.1,.05,0]],
@@ -39,6 +39,10 @@ const VOICES:Record<Sfx,[OscillatorType,number,number,number,number,number][]>={
   ding:[['sine',1568,1560,1.2,.08,0],['sine',3136,3120,.7,.03,0],['triangle',784,780,.9,.03,0]],
   slide:[['sine',1400,260,.9,.06,0]],
   yuck:[['sawtooth',210,120,.28,.035,.3]],
+  // Thrown props: a quick release swish, a soft landing thud, glass / fruit breaking.
+  toss:[['sine',260,620,.14,.03,.8]],
+  thud:[['triangle',120,55,.14,.07,.5]],
+  shatter:[['square',2400,1800,.18,.02,.9],['triangle',1600,900,.25,.025,.6],['sine',3200,2600,.12,.015,0]],
 };
 let noise:AudioBuffer|undefined;
 export function sound(kind:Sfx){

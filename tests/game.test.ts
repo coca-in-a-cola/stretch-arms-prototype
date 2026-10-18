@@ -5,7 +5,7 @@ import { Game, ENEMY_HP, PUNCH_DAMAGE, healthBarAlpha, readProgress, loadProgres
 describe('deterministic arcade rules', () => {
   test('the bar is level 1 (open from the start); the merged street is level 2 and spawns across depth layers on both halves', () => {
     const fresh = new Game(); expect(fresh.start(1)).toBe(true); expect(fresh.layout.look).toBe('bar'); expect(fresh.actors.some(t => t.kind === 'hat')).toBe(true);
-    expect(fresh.actors[0].layer).toBe('foreground'); expect(fresh.actors[0].slot).toBe(0); expect(fresh.start(2)).toBe(false);
+    const first = fresh.actors.find(t => t.kind === 'enemy')!; expect(first.layer).toBe('foreground'); expect(first.slot).toBe(0); expect(fresh.start(2)).toBe(false);
     const g = new Game({version:2,unlocked:2,best:0}); expect(g.start(2)).toBe(true); expect(g.layout.look).toBe('street');
     expect(g.layout.goal).toBeGreaterThan(20); expect(g.layout.pan).toBeGreaterThan(6); expect(g.actors.filter(t=>t.kind==='dog').length).toBe(2);
     for (let i = 0; i < 8; i++) { g.spawn(); for (const t of g.actors) if (t.kind === 'enemy' && g.actors.filter(e => e.kind === 'enemy').length >= 5) { g.actors = g.actors.filter(e => e !== t); break; } }
