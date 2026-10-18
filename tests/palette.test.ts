@@ -79,7 +79,11 @@ describe('colour logic: grey world, colour means interactive', () => {
   const backdrops = ['gen_bar_backdrop.png'];
   const sprites = readdirSync(join(root, 'public', 'assets')).filter(f => f.endsWith('.png') && !backdrops.includes(f));
   test('every runtime sprite is present', () => {
-    expect(sprites.sort()).toEqual(['bully.png', 'dog_halo.png', 'gen_anvil.png', 'gen_barrel.png', 'gen_bottle.png', 'gen_bowling.png', 'gen_bulldog.png', 'gen_cat_hurt.png', 'gen_cat_ko.png', 'gen_cat_windup.png', 'gen_chicken.png', 'gen_cuckoo.png', 'gen_dog_sad.png', 'gen_dog_sit.png', 'gen_dog_walk.png', 'gen_eggs.png', 'gen_fish.png', 'gen_flowerpot.png', 'gen_hat.png', 'gen_hydrant.png', 'gen_melon.png', 'gen_mug.png', 'gen_pie.png', 'gen_plunger.png', 'gen_shaker.png', 'gen_spittoon.png', 'gen_stool.png', 'gen_tire.png', 'gen_walrus.png', 'gen_weasel.png', 'gen_whiskey.png']);
+    expect(sprites.sort()).toEqual(['bully.png', 'dog_halo.png', 'gen_anvil.png', 'gen_barrel.png', 'gen_bottle.png', 'gen_bowling.png', 'gen_bulldog.png', 'gen_cat_hurt.png', 'gen_cat_ko.png', 'gen_cat_windup.png', 'gen_chicken.png', 'gen_cuckoo.png', 'gen_dog_sad.png', 'gen_dog_sit.png', 'gen_dog_walk.png', 'gen_eggs.png', 'gen_fish.png', 'gen_flowerpot.png', 'gen_hat.png', 'gen_hydrant.png', 'gen_melon.png', 'gen_mug.png', 'gen_pie.png', 'gen_plunger.png', 'gen_shaker.png', 'gen_spittoon.png', 'gen_stool.png', 'gen_tire.png', 'gen_walrus.png', 'gen_weasel.png', 'gen_whiskey.png',
+      // SA-V4-17: friends (must not hit) and the street's close-range thugs.
+      'gen_mole_up.png', 'gen_mole_lantern.png', 'gen_mole_hurt.png',
+      'gen_granny_idle.png', 'gen_granny_mad.png', 'gen_granny_fury.png', 'gen_kitten_idle.png', 'gen_kitten_mad.png', 'gen_kitten_fury.png', 'gen_pigeon_idle.png', 'gen_pigeon_mad.png', 'gen_pigeon_fury.png', 'gen_drunk_idle.png', 'gen_drunk_mad.png', 'gen_drunk_fury.png',
+      'gen_rat_appear.png', 'gen_rat_attack.png', 'gen_rat_ko.png', 'gen_gang_appear.png', 'gen_gang_attack.png', 'gen_gang_ko.png', 'gen_kid_appear.png', 'gen_kid_attack.png', 'gen_kid_ko.png'].sort());
   });
   for (const f of backdrops) test(`${f}: painted backdrop is pure grey world`, () => {
     const { px } = readPng(join(root, 'public', 'assets', f));

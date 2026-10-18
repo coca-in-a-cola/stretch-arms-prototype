@@ -58,6 +58,32 @@ JOBS = [
     ('gen_street_props2.jpg', 'gen_bowling.png', {'crop': [55, 715, 315, 975]}),
     ('gen_street_props2.jpg', 'gen_flowerpot.png', {'crop': [405, 660, 615, 990]}),
     ('gen_street_props2.jpg', 'gen_pie.png', {'crop': [685, 715, 1000, 955], 'hole': 6000}),  # keep the whipped cream
+    # SA-V4-17: must-not-hit friends (mole on both levels, kitten + sleepy drunk in the bar, granny + postman pigeon outside)
+    # and the street's close-range thugs (rat pickpocket, pigeon gang, slingshot kid). Shared scale per character.
+    ('gen_mole_poses.jpg', 'gen_mole_up.png', {'crop': [25, 330, 340, 670], 'scale': 1.35}),
+    ('gen_mole_poses.jpg', 'gen_mole_lantern.png', {'crop': [345, 340, 680, 670], 'scale': 1.35}),
+    ('gen_mole_poses.jpg', 'gen_mole_hurt.png', {'crop': [665, 255, 1000, 675], 'scale': 1.35}),
+    ('gen_friends_poses.jpg', 'gen_granny_idle.png', {'crop': [40, 25, 250, 265], 'scale': 2.3}),
+    ('gen_friends_poses.jpg', 'gen_granny_mad.png', {'crop': [285, 15, 500, 265], 'scale': 2.3}),
+    ('gen_friends_poses.jpg', 'gen_granny_fury.png', {'crop': [790, 10, 1010, 265], 'scale': 2.3}),
+    ('gen_friends_poses.jpg', 'gen_kitten_idle.png', {'crop': [30, 280, 250, 500], 'scale': 2.2}),
+    ('gen_friends_poses.jpg', 'gen_kitten_mad.png', {'crop': [280, 270, 500, 500], 'scale': 2.2}),
+    ('gen_friends_poses.jpg', 'gen_kitten_fury.png', {'crop': [790, 270, 1010, 500], 'scale': 2.2}),
+    ('gen_friends_poses.jpg', 'gen_pigeon_idle.png', {'crop': [30, 525, 250, 750], 'scale': 2.1}),
+    ('gen_friends_poses.jpg', 'gen_pigeon_mad.png', {'crop': [270, 510, 510, 750], 'scale': 2.1}),
+    ('gen_friends_poses.jpg', 'gen_pigeon_fury.png', {'crop': [770, 505, 1010, 750], 'scale': 2.1}),
+    ('gen_friends_poses.jpg', 'gen_drunk_idle.png', {'crop': [50, 755, 250, 1015], 'scale': 2.2}),
+    ('gen_friends_poses.jpg', 'gen_drunk_mad.png', {'crop': [295, 755, 520, 1015], 'scale': 2.2}),
+    ('gen_friends_poses.jpg', 'gen_drunk_fury.png', {'crop': [785, 755, 1010, 1015], 'scale': 2.2}),
+    ('gen_thugs_poses.jpg', 'gen_rat_appear.png', {'crop': [70, 45, 320, 330], 'scale': 1.5}),
+    ('gen_thugs_poses.jpg', 'gen_rat_attack.png', {'crop': [340, 55, 690, 330], 'scale': 1.5}),
+    ('gen_thugs_poses.jpg', 'gen_rat_ko.png', {'crop': [670, 60, 1000, 330], 'scale': 1.5}),
+    ('gen_thugs_poses.jpg', 'gen_gang_appear.png', {'crop': [50, 355, 330, 670], 'scale': 1.5}),
+    ('gen_thugs_poses.jpg', 'gen_gang_attack.png', {'crop': [370, 375, 660, 670], 'scale': 1.5}),
+    ('gen_thugs_poses.jpg', 'gen_gang_ko.png', {'crop': [710, 385, 1000, 670], 'scale': 1.5}),
+    ('gen_thugs_poses.jpg', 'gen_kid_appear.png', {'crop': [95, 680, 290, 1005], 'scale': 1.5}),
+    ('gen_thugs_poses.jpg', 'gen_kid_attack.png', {'crop': [390, 690, 660, 1000], 'scale': 1.5}),
+    ('gen_thugs_poses.jpg', 'gen_kid_ko.png', {'crop': [670, 715, 1000, 1000], 'scale': 1.5}),
     # Backdrop: the B/W bar painting, kept opaque and forced to pure grey (world rule), PNG so no .jpg ships.
     ('gen_bar_bg.jpg', 'gen_bar_backdrop.png', {'plain': True}),
 ]
