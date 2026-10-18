@@ -1,18 +1,27 @@
 import * as THREE from 'three';
 
-/** Level 2 backdrop: a noisy alley at dusk — tall dark silhouettes, glowing windows, neon and string lights.
- * Built with the original paint; main.ts turns it greyscale (palette.ts) like the rest of the world. */
-export function makeStreet() {
+/** The alley half of the street level: tall dark silhouettes, glowing windows, neon and string lights.
+ * Built with the original paint; main.ts turns it greyscale (palette.ts) like the rest of the world.
+ * `left: false` drops the left-hand buildings so the alley can open onto the yard of the same panorama. */
+export function makeStreet({ left = true } = {}) {
   const street = new THREE.Group();
   function block(size: readonly [number, number, number], at: readonly [number, number, number], color: string, glow = false) {
     const material = glow ? new THREE.MeshBasicMaterial({ color, fog: false }) : new THREE.MeshStandardMaterial({ color, roughness: .9 });
     const mesh = new THREE.Mesh(new THREE.BoxGeometry(...size), material);
     mesh.position.set(...at); mesh.castShadow = !glow; mesh.receiveShadow = !glow; street.add(mesh); return mesh;
   }
+  function lamp(side: number, z: number) {
+    block([.16, 6, .16], [side * 4.9, 3, z], '#1f1a2a');
+    block([1.6, .15, .15], [side * 4.25, 6, z], '#1f1a2a');
+    const head = block([.65, .14, .45], [side * 3.5, 5.85, z], '#fff1b2', true); head.userData.lamp = side * 100 + z;
+    // Each lamp throws a hard pool of light on the street (the B/W world reads by contrast, not hue).
+    const pool = new THREE.PointLight('#ffffff', 160, 12, 2); pool.position.set(side * 3.3, 5.2, z); street.add(pool);
+  }
   block([70, .25, 85], [0, -.2, -20], '#4a4552');
   for (let z = -36; z < -5; z += 4) block([.14, .02, 2], [0, -.055, z], '#f2b45c');
   for (let x = -3.8; x <= 3.8; x += 1.25) block([.7, .025, 2.5], [x, -.05, -3.3], '#b9a9a8');
   for (const side of [-1, 1]) {
+    if (side < 0 && !left) { block([.22, .36, 60], [side * 4.45, .05, -19], '#a99a92'); for (const z of [-5, -20]) lamp(side, z); continue; }
     block([7, .3, 60], [side * 8, -.04, -19], '#6c5f6c');
     block([.22, .36, 60], [side * 4.45, .05, -19], '#a99a92');
     for (let i = 0; i < 4; i++) {
@@ -27,13 +36,7 @@ export function makeStreet() {
       // Chimney / water tank bumps break the rooftop line.
       if (i % 2 === 0) block([.6, 1.2, .6], [side * 7, h + .6, z + 1.5], '#221c30');
     }
-    for (const z of [-5, -20]) {
-      block([.16, 6, .16], [side * 4.9, 3, z], '#1f1a2a');
-      block([1.6, .15, .15], [side * 4.25, 6, z], '#1f1a2a');
-      block([.65, .14, .45], [side * 3.5, 5.85, z], '#fff1b2', true);
-      // Each lamp throws a hard pool of light on the dark street (the B/W dusk reads by contrast, not hue).
-      const pool = new THREE.PointLight('#ffffff', 160, 12, 2); pool.position.set(side * 3.3, 5.2, z); street.add(pool);
-    }
+    for (const z of [-5, -20]) lamp(side, z);
   }
   // Distant skyline silhouettes at the end of the alley.
   for (let i = 0; i < 9; i++) { const h = 7 + ((i * 7) % 5) * 2.2; block([3.2, h, 2], [-14 + i * 3.5, h / 2, -40], '#2a2140'); }
@@ -62,8 +65,8 @@ export function makeStreet() {
     const sign = new THREE.Mesh(new THREE.PlaneGeometry(w, w / 4), new THREE.MeshBasicMaterial({ map: texture, fog: false }));
     sign.position.set(...at); sign.rotation.y = ry; sign.userData.neon = true; street.add(sign);
   };
-  neon('ПЕРЕУЛОК 02', 4.3, '#ff4fa3', [-5.9, 4.55, -4]);
+  neon('ПЕРЕУЛОК', 4.3, '#ff4fa3', [-5.9, 4.55, -4]);
   neon('ЧЕБУРЕКИ', 3.2, '#5ef0c8', [5.42, 4.2, -7], -Math.PI / 2);
-  neon('ШУМ', 2.2, '#ffcf4a', [-5.42, 4.8, -12.5], Math.PI / 2);
+  if (left) neon('ШУМ', 2.2, '#ffcf4a', [-5.42, 4.8, -12.5], Math.PI / 2);
   return street;
 }

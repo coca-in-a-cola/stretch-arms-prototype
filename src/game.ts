@@ -6,7 +6,7 @@ export type Kind = 'enemy' | 'dog' | PropKind;
 export interface Actor { id: number; kind: Kind; x: number; y: number; z?: number; slot?: number; layer?: Layer; skin?: Skin; age: number; deadline: number; /** Ult soaking, 0..1 (1 = knocked out). */ wet?: number; }
 /** Things that just happened, drained by the renderer to play attack / knockout / sad-dog / ult animations. */
 export interface GameEvent { type: 'attack' | 'ko' | 'dog' | 'smash' | 'ult' | 'ultEnd' | 'hatBack'; id: number; combo: number; }
-export interface Progress { version: 1; unlocked: number; best: number; }
+export interface Progress { version: 2; unlocked: number; best: number; }
 export type Action = 'punch' | 'grab';
 export type Outcome = 'hit' | 'grab' | 'throw' | 'protected' | 'smash' | 'cover' | 'miss' | 'tired' | 'blocked' | 'ult';
 /** What the free-aim ray struck first. `id` is an actor id for enemy/dog/prop; `point` is where it struck. */
@@ -14,10 +14,28 @@ export interface StrikeHit { kind: HitKind | 'whiff'; id?: number | string; poin
 /** Secret ultimate timing: a frozen beat with the title card, then the pour. One per level attempt. */
 export const ULT = { freeze: .5, intro: 1.8, length: 6, soakRate: 1.9, dogCooldown: 1.5 } as const;
 export type UltPhase = 'none' | 'intro' | 'pour' | 'done';
-export const freshProgress = (): Progress => ({ version: 1, unlocked: 1, best: 0 });
+export const PROGRESS_KEY = 'long-arms.progress.v2', LEGACY_PROGRESS_KEY = 'long-arms.progress.v1';
+export const freshProgress = (): Progress => ({ version: 2, unlocked: 1, best: 0 });
+/**
+ * v2 order: 1 = bar (open from the start), 2 = the wide street. v1 had 1 = yard, 2 = alley, 3 = bar; the yard and
+ * alley were merged into the street, so any v1 save that got past the yard opens the street. Best score carries over.
+ */
 export function readProgress(raw: string | null): Progress {
-  try { const p = JSON.parse(raw ?? 'null'); if (p?.version === 1 && Number.isInteger(p.unlocked) && p.unlocked >= 1 && p.unlocked <= LAST_LEVEL && Number.isFinite(p.best) && p.best >= 0) return { version: 1, unlocked: p.unlocked, best: Math.floor(p.best) }; } catch { /* Invalid storage is treated as a new game. */ }
+  try {
+    const p = JSON.parse(raw ?? 'null'), best = Number.isFinite(p?.best) && p.best >= 0 ? Math.floor(p.best) : -1;
+    if (p?.version === 2 && Number.isInteger(p.unlocked) && p.unlocked >= 1 && p.unlocked <= LAST_LEVEL && best >= 0) return { version: 2, unlocked: p.unlocked, best };
+    if (p?.version === 1 && Number.isInteger(p.unlocked) && p.unlocked >= 1 && p.unlocked <= 3 && best >= 0) return { version: 2, unlocked: p.unlocked >= 2 ? 2 : 1, best };
+  } catch { /* Invalid storage is treated as a new game. */ }
   return freshProgress();
+}
+/** Current save if present, else the migrated v1 save. */
+export const loadProgress = (get: (key: string) => string | null) => { const v2 = get(PROGRESS_KEY); return readProgress(v2 ?? get(LEGACY_PROGRESS_KEY)); };
+export interface ResultAction { id: 'next' | 'retry' | 'select' | 'menu'; label: string; primary: boolean; }
+/** Result screen buttons: after a win the next level is the main call to action; the last level goes back to the menu. */
+export function resultActions(g: { won: boolean; level: number; progress: Progress }): ResultAction[] {
+  if (g.won && g.level < LAST_LEVEL && g.progress.unlocked > g.level) return [{ id: 'next', label: 'СЛЕДУЮЩИЙ УРОВЕНЬ →', primary: true }, { id: 'retry', label: 'ЕЩЁ РАЗ ↺', primary: false }, { id: 'select', label: 'ВЫБОР УРОВНЯ', primary: false }];
+  if (g.won) return [{ id: 'menu', label: 'В МЕНЮ →', primary: true }, { id: 'retry', label: 'ЕЩЁ РАЗ ↺', primary: false }];
+  return [{ id: 'retry', label: 'ЕЩЁ РАЗ ↗', primary: true }, { id: 'select', label: 'ВЫБОР УРОВНЯ', primary: false }];
 }
 export const costOf = (action: Action, holding: boolean) => action === 'punch' ? 24 : holding ? 18 : 12;
 
@@ -31,7 +49,7 @@ export class Game {
   get goal() { return this.layout.goal; }
   start(level: number) {
     if (level > this.progress.unlocked) return false;
-    this.level = level; this.hp = 5; this.stamina = 100; this.score = 0; this.combo = 0; this.elapsed = 0; this.held = null; this.actors = []; this.events = []; this.won = false; this.defeated = 0; this.spawned = 0; this.spawnClock = 0; this.nextId = 1; this.mode = 'play'; this.message = level === 3 ? 'Бар «Длинные руки». Ведите себя прилично.' : 'Покажи, кто тут длиннорукий!';
+    this.level = level; this.hp = 5; this.stamina = 100; this.score = 0; this.combo = 0; this.elapsed = 0; this.held = null; this.actors = []; this.events = []; this.won = false; this.defeated = 0; this.spawned = 0; this.spawnClock = 0; this.nextId = 1; this.mode = 'play'; this.message = this.layout.look === 'bar' ? 'Бар «Длинные руки». Ведите себя прилично.' : 'Улица большая — крути камеру к краям!';
     this.ult = { phase: 'none', t: 0, meter: 0 }; this.dogSoak = 0;
     this.spawn(); this.placeHat(); return true;
   }
@@ -62,13 +80,14 @@ export class Game {
   suspend() { if (this.mode === 'play') this.mode = 'pause'; }
   spawn() {
     if (this.spawned >= this.goal) return;
-    const { order, slots, dog, prop, deadline } = this.layout;
+    const { order, slots, dogs, prop, deadline, maxAlive } = this.layout;
     const slot = order[this.spawned % order.length];
     if (this.actors.some(t => t.kind === 'enemy' && t.slot === slot)) return;
+    if (maxAlive && this.actors.filter(t => t.kind === 'enemy').length >= maxAlive) return;
     const s = slots[slot];
     this.actors.push({ id: this.nextId++, kind: 'enemy', x: s.x, y: s.y, z: s.z, slot, layer: s.layer, age: 0, deadline });
     this.spawned++;
-    if (!this.actors.some(t => t.kind === 'dog')) this.actors.push({ id: this.nextId++, kind: 'dog', ...dog, layer: 'midground', age: 0, deadline: Infinity });
+    if (!this.actors.some(t => t.kind === 'dog')) for (const dog of dogs) this.actors.push({ id: this.nextId++, kind: 'dog', ...dog, layer: 'midground', age: 0, deadline: Infinity });
     const [a, b] = this.layout.props ?? ['bottle', 'barrel'];
     if (!this.actors.some(t => t.kind === a || t.kind === b) && !this.held) this.actors.push({ id: this.nextId++, kind: this.spawned % 2 ? a : b, ...prop, layer: 'foreground', age: 0, deadline: Infinity });
     if (s.skin) this.actors.find(t => t.kind === 'enemy' && t.slot === slot)!.skin = s.skin;

@@ -34,3 +34,12 @@ html[data-reduced-motion=true] .intertitle>div{animation:none}
 .ultmeter i{display:block;height:100%;background:linear-gradient(#fff6b8,#ffd400 45%,#e6b800);transition:width .1s linear}
 @media(max-width:650px){.ultmeter{top:150px}}
 @media(max-height:550px){.ultmeter{top:132px}}
+/* Wide-level edge hints: quiet chevrons while the street continues; a count of bullies off-screen; red pulse on a wind-up. */
+.panhint{position:absolute;top:50%;transform:translateY(-50%);display:grid;place-items:center;gap:2px;width:34px;padding:10px 0;border:2px solid #222;border-radius:18px;background:#f4f1e8c0;font-weight:900;font-size:16px;opacity:0;transition:opacity .25s;pointer-events:none}
+.panhint.left{left:8px}.panhint.right{right:8px}
+.panhint.on{opacity:.62}
+.panhint span{font-size:12px;line-height:1}
+.panhint span:empty{display:none}
+.panhint.hot{opacity:1;background:#ff6b8f;animation:panhot .45s ease-in-out infinite alternate}
+@keyframes panhot{to{transform:translateY(-50%) scale(1.15)}}
+[data-reduced-motion="true"] .panhint.hot{animation:none}

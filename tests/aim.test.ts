@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { rayBox, resolveShot, WHIFF_REACH, type Hittable, type Vec3 } from '../src/aim';
-import { LEVELS, BODY, cameraFor, bodyBox, hittables, pose } from '../src/layout';
+import { LEVELS, BODY, cameraFor, clampPan, bodyBox, hittables, pose } from '../src/layout';
 import { Game } from '../src/game';
 
 const eye: Vec3 = { x: 0, y: 2, z: 10 };
@@ -41,7 +41,7 @@ describe('free-aim ray resolution', () => {
 });
 
 describe('depth layers and occlusion in real level layouts', () => {
-  for (const level of [1, 2, 3]) {
+  for (const level of [1, 2]) {
     test(`level ${level}: covers and slots span all three depth layers`, () => {
       const L = LEVELS[level];
       for (const layer of ['foreground', 'midground', 'background'] as const) {
@@ -50,8 +50,9 @@ describe('depth layers and occlusion in real level layouts', () => {
       const zs = L.slots.map(s => s.z); expect(Math.max(...zs) - Math.min(...zs)).toBeGreaterThan(10);
     });
     test(`level ${level}: every hidden enemy is fully occluded by its cover; risen enemies are hittable`, () => {
-      const cam = cameraFor(1440, 960).position;
       L: for (let slot = 0; slot < LEVELS[level].slots.length; slot++) {
+        // Wide levels: the camera pans over to look at this slot, as the player would.
+        const cam = cameraFor(1440, 960, clampPan(level, LEVELS[level].slots[slot].x)).position;
         const t = { id: 99, kind: 'enemy' as const, slot, x: 0, y: 0, age: 0 };
         const hidden = bodyBox('enemy', pose(level, t));
         const covers = hittables(level, []); let seen = 0, total = 0;
@@ -85,17 +86,43 @@ describe('stamina and outcomes for free-aim strikes', () => {
   });
   test('punching cover spends stamina and leaves the enemy behind it alive', () => {
     const g = new Game(); g.start(1); const enemy = g.actors.find(t => t.kind === 'enemy')!;
-    g.spend('punch'); expect(g.resolve('punch', { kind: 'cover', id: 'barrel-a' })).toBe('cover');
+    g.spend('punch'); expect(g.resolve('punch', { kind: 'cover', id: 'piano' })).toBe('cover');
     expect(g.actors).toContain(enemy); expect(g.stamina).toBe(76); expect(g.score).toBe(0);
   });
   test('scenery hit is a whiff; prop punch smashes it; tired swings cost nothing', () => {
     const g = new Game(); g.start(1); g.spend('punch'); expect(g.resolve('punch', { kind: 'scenery', id: 'wall' })).toBe('miss');
-    const prop = g.actors.find(t => t.kind === 'bottle' || t.kind === 'barrel')!;
+    const prop = g.actors.find(t => t.kind === 'mug' || t.kind === 'whiskey')!;
     g.spend('punch'); expect(g.resolve('punch', { kind: 'prop', id: prop.id })).toBe('smash'); expect(g.actors).not.toContain(prop); expect(g.score).toBe(25);
     g.stamina = 10; expect(g.spend('punch')).toBe(false); expect(g.stamina).toBe(10);
   });
   test('thrown prop that whiffs is lost', () => {
-    const g = new Game(); g.start(1); const prop = g.actors.find(t => t.kind === 'bottle')!;
+    const g = new Game(); g.start(1); const prop = g.actors.find(t => t.kind === 'mug' || t.kind === 'whiskey')!;
     expect(g.act('grab', prop.id)).toBe('grab'); g.spend('grab'); expect(g.resolve('grab', { kind: 'whiff' })).toBe('miss'); expect(g.held).toBeNull(); expect(g.stamina).toBe(70);
+  });
+});
+
+describe('camera pan on the wide street keeps free aim honest', () => {
+  test('a click at a panned position raycasts from the real (moved) camera and hits the enemy under the cursor', async () => {
+    const THREE = await import('three');
+    const g = new Game({ version: 2, unlocked: 2, best: 0 }); g.start(2);
+    const far = g.layout.slots.findIndex(s => s.x > 9 && s.layer === 'foreground');
+    const enemy = { id: 42, kind: 'enemy' as const, slot: far, x: 0, y: 0, age: 2.5, deadline: 9 };
+    const W = 1440, H = 960, cam = new THREE.PerspectiveCamera(50, W / H, .3, 90);
+    const point = (pan: number) => {
+      const rig = cameraFor(W, H, pan); cam.fov = rig.fov; cam.updateProjectionMatrix();
+      cam.position.set(rig.position.x, rig.position.y, rig.position.z); cam.lookAt(rig.look.x, rig.look.y, rig.look.z); cam.updateMatrixWorld();
+      const b = bodyBox('enemy', pose(2, enemy)), head = new THREE.Vector3((b.min.x + b.max.x) / 2, b.max.y - .3, b.max.z).project(cam);
+      return { ndc: new THREE.Vector2(head.x, head.y), onScreen: Math.abs(head.x) < 1 && Math.abs(head.y) < 1 };
+    };
+    const shoot = (ndc: { x: number; y: number }) => {
+      const r = new THREE.Raycaster(); r.setFromCamera(new THREE.Vector2(ndc.x, ndc.y), cam);
+      return resolveShot(r.ray.origin, r.ray.direction, hittables(2, [enemy]));
+    };
+    expect(point(0).onScreen).toBe(false); // out of view from the centre of the street
+    const pan = clampPan(2, 99); expect(pan).toBe(g.layout.pan); // clamped at the right end
+    const p = point(pan); expect(p.onScreen).toBe(true);
+    expect(shoot(p.ndc).id).toBe(42);
+    // The same screen spot with the camera back at the centre is somewhere else entirely.
+    point(0); expect(shoot(p.ndc).id).not.toBe(42);
   });
 });

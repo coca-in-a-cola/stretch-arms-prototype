@@ -1,7 +1,7 @@
 import * as THREE from 'three';
-import { Game, readProgress, costOf, ULT, type Action, type Kind, type Actor, type Outcome } from './game';
+import { Game, loadProgress, resultActions, PROGRESS_KEY, costOf, ULT, type Action, type Kind, type Actor, type Outcome } from './game';
 import { resolveShot, type Hittable, type Shot, type Vec3 } from './aim';
-import { LEVELS, BODY, WINDUP, pose, dogWalk, hittables, cameraFor, onLanding, type Cover, type BodyKind, type Skin } from './layout';
+import { LEVELS, BODY, WINDUP, YARD_X, ALLEY_X, LAST_LEVEL, clampPan, pose, dogWalk, hittables, cameraFor, onLanding, type Cover, type BodyKind, type Skin } from './layout';
 import './style.css';
 import { makeStreet } from './street';
 import { makeBar } from './bar';
@@ -10,10 +10,9 @@ import { LOOKS, greyscaleWorld, greyCanvas, greyColor } from './palette';
 import { armMetrics, restPose, punchPose, sideFor, drawArm as inkArm, type Avoid, type Pt } from './arm';
 import { reducedMotion, unlockAudio, sound, trickle, settingsUi, bindSettings } from './preferences';
 
-const KEY = 'long-arms.progress.v1';
-let raw: string | null = null;
-try { raw = localStorage.getItem(KEY); } catch { raw = null; }
-const game = new Game(readProgress(raw), p => { try { localStorage.setItem(KEY, JSON.stringify(p)); } catch { game.message = 'Сохранение недоступно в этом браузере.'; } });
+let saved = loadProgress(() => null);
+try { saved = loadProgress(k => localStorage.getItem(k)); } catch { /* storage blocked: fresh progress */ }
+const game = new Game(saved, p => { try { localStorage.setItem(PROGRESS_KEY, JSON.stringify(p)); } catch { game.message = 'Сохранение недоступно в этом браузере.'; } });
 const app = document.querySelector<HTMLDivElement>('#app')!;
 app.innerHTML = '<canvas id="scene" aria-label="Трёхмерный двор и задиры"></canvas><div id="film" aria-hidden="true"></div><canvas id="arm" aria-hidden="true"></canvas><div id="ui"></div>';
 const ui = document.querySelector<HTMLDivElement>('#ui')!;
@@ -45,15 +44,20 @@ function skyTexture(stops: readonly (readonly [number, string])[]) {
   const grad = g.createLinearGradient(0, 0, 0, 256); for (const [o, col] of stops) grad.addColorStop(o, col);
   g.fillStyle = grad; g.fillRect(0, 0, 4, 256); const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
 }
-/** Grey film looks (palette.ts): level 1 bright daylight, level 2 dark dusk with lamp pools. */
-const skies: Record<number, THREE.Texture> = { 1: skyTexture(LOOKS[1].sky), 2: skyTexture(LOOKS[2].sky), 3: skyTexture(LOOKS[3].sky) };
+/** Grey film looks (palette.ts): the street's late-afternoon sky, the bar's smoky dark. */
+const skies = { street: skyTexture(LOOKS.street.sky), bar: skyTexture(LOOKS.bar.sky) };
 const shownLevel = () => game.mode === 'menu' || game.mode === 'select' ? 1 : game.level;
+const isBar = (level = game.level) => LEVELS[level].look === 'bar';
 function applyLook(level: number) {
-  const k = level === 2 || level === 3 ? level : 1, L = LOOKS[k];
+  const k = LEVELS[level].look, L = LOOKS[k];
   scene.background = skies[k]; (scene.fog as THREE.Fog).color.set(L.fog); (scene.fog as THREE.Fog).near = L.near; (scene.fog as THREE.Fog).far = L.far;
   hemi.color.set(L.hemi[0]); hemi.groundColor.set(L.hemi[1]); hemi.intensity = L.hemi[2];
-  sun.color.set(L.sun[0]); sun.intensity = L.sun[1]; sun.position.set(L.sunAt[0], L.sunAt[1], L.sunAt[2]);
+  sun.color.set(L.sun[0]); sun.intensity = L.sun[1]; sunAt = L.sunAt;
 }
+let sunAt: readonly [number, number, number] = LOOKS.bar.sunAt;
+scene.add(sun.target);
+/** The shadow frustum rides along with the camera pan so the wide street keeps crisp shadows end to end. */
+function placeSun(pan: number) { sun.position.set(sunAt[0] + pan, sunAt[1], sunAt[2]); sun.target.position.set(pan, 0, 0); sun.target.updateMatrixWorld(); }
 const asset = (name: string) => import.meta.env.BASE_URL + 'assets/' + name;
 
 // -------------------------------------------------------------------------------------------------
@@ -153,15 +157,19 @@ function sceneryOf(group: THREE.Object3D, skip: Set<THREE.Object3D>): Hittable[]
   return out;
 }
 
+/** The yard half of the street (left end of the panorama; its right side opens onto the alley). */
 function courtyard() {
   const g = new THREE.Group();
-  block(g, 60, .25, 60, '#a7aaa0', 0, -.125, -10, false);
+  block(g, 41.5, .25, 60, '#a7aaa0', -11.25, -.125, -10, false);
+  block(g, .3, .14, 60, '#c9cbc2', 9.5, .07, -10); // kerb where the yard's paving meets the alley tarmac
   block(g, 12, .02, 9, '#bdbdb0', 0, .01, 2.5, false);
-  for (const side of [-1, 1]) {
-    block(g, 4, 9, 16, side < 0 ? '#a9afa5' : '#bcc0b4', side * 9.5, 4.5, -2);
-    for (let y = 2; y < 8; y += 2.6) for (let z = -8; z < 5; z += 3.2) block(g, .1, 1.5, 1.1, '#59675f', side * 7.47, y, z);
-  }
-  block(g, 26, 2, .3, '#9da497', 0, 10, -9);
+  block(g, 4, 9, 16, '#a9afa5', -9.5, 4.5, -2);
+  for (let y = 2; y < 8; y += 2.6) for (let z = -8; z < 5; z += 3.2) block(g, .1, 1.5, 1.1, '#59675f', -7.47, y, z);
+  block(g, 21, 2, .3, '#9da497', -2.5, 10, -9);
+  // Brick gate pillars where the yard meets the alley.
+  for (const z of [-4.2, -6.6]) block(g, .9, 5.2, .9, '#8f8a80', 7.4, 2.6, z);
+  block(g, .9, .7, 3.3, '#8f8a80', 7.4, 5.55, -5.4);
+  block(g, 1.6, 10, 3, '#a3a59b', 8.6, 5, -10.1); // corner house: the yard's back block meets the alley's shopfronts
   // Clothesline across the mid-ground: overlapping laundry sprites are a strong parallax cue.
   block(g, .1, 4.6, .1, '#596358', -6.5, 2.3, -4.5); block(g, .1, 4.6, .1, '#596358', 6.5, 2.3, -4.5);
   const line = new THREE.Mesh(new THREE.CylinderGeometry(.015, .015, 13, 4), solid('#2b2f2b')); line.rotation.z = Math.PI / 2; line.position.set(0, 4.45, -4.5); g.add(line);
@@ -181,10 +189,12 @@ const swaying: THREE.Object3D[] = [];
 const swinging: THREE.Object3D[] = [];
 const barPainting = new THREE.Texture(); barPainting.colorSpace = THREE.SRGBColorSpace;
 new THREE.TextureLoader().load(asset('gen_bar_backdrop.png'), t => { barPainting.image = t.image; barPainting.needsUpdate = true; }, undefined, () => { /* bare walls if the painting is missing */ });
-const LEVEL_IDS = [1, 2, 3] as const;
+const LEVEL_IDS = [1, 2] as const;
 for (const level of LEVEL_IDS) {
   const group = new THREE.Group(); scene.add(group); levelGroups[level] = group;
-  const backdrop = level === 1 ? courtyard() : level === 2 ? makeStreet() : makeBar(barPainting); group.add(backdrop);
+  const backdrop = new THREE.Group(); group.add(backdrop);
+  if (isBar(level)) backdrop.add(makeBar(barPainting));
+  else { const y = courtyard(), a = makeStreet({ left: false }); y.position.x = YARD_X; a.position.x = ALLEY_X; backdrop.add(y, a); }
   backdrop.traverse(o => { if (o.userData.sway !== undefined) swaying.push(o); if (o.userData.swing !== undefined) swinging.push(o); });
   const layout = LEVELS[level];
   for (const c of layout.covers) buildCover(group, c);
@@ -195,7 +205,7 @@ for (const level of LEVEL_IDS) {
 // -------------------------------------------------------------------------------------------------
 // LIVING CHARACTERS (2D art on depth-placed sprites; alpha-tested + depth-written so overlap is exact).
 // -------------------------------------------------------------------------------------------------
-function art(kind: Kind | 'sign', level = 1): THREE.CanvasTexture {
+function art(kind: Kind | 'sign'): THREE.CanvasTexture {
   const c = document.createElement('canvas'); c.width = 512; c.height = 640;
   const g = c.getContext('2d')!; g.lineJoin = 'round'; g.lineCap = 'round'; g.strokeStyle = '#202522'; g.lineWidth = 12;
   function ellipse(x: number, y: number, rx: number, ry: number, color: string) { g.fillStyle = color; g.beginPath(); g.ellipse(x, y, rx, ry, 0, 0, Math.PI * 2); g.fill(); g.stroke(); }
@@ -219,7 +229,7 @@ function art(kind: Kind | 'sign', level = 1): THREE.CanvasTexture {
     path([[128, 260], [385, 260], [389, 293], [125, 293]], '#272d28'); path([[117, 470], [396, 470], [399, 504], [114, 504]], '#272d28');
     g.fillStyle = '#f9d846'; g.fillRect(145, 330, 222, 70); g.font = '900 46px Arial'; g.fillStyle = '#263126'; g.fillText('БАМ!', 200, 382);
   } else {
-    path([[15, 120], [495, 120], [495, 480], [15, 480]], level === 1 ? '#c7f653' : '#f359a4'); g.fillStyle = '#222722'; g.textAlign = 'center'; g.font = '900 75px Arial'; g.fillText(level === 1 ? 'ДВОР' : 'ШУМ!', 256, 270); g.fillText(level === 1 ? '№ 01' : '№ 02', 256, 370);
+    path([[15, 120], [495, 120], [495, 480], [15, 480]], '#c7f653'); g.fillStyle = '#222722'; g.textAlign = 'center'; g.font = '900 75px Arial'; g.fillText('ДВОР', 256, 270); g.fillText('№ 02', 256, 370);
   }
   const texture = new THREE.CanvasTexture(c); texture.colorSpace = THREE.SRGBColorSpace; return texture;
 }
@@ -248,11 +258,11 @@ function showFrame(v: ActorView, map: THREE.Texture) {
   v.frame = frameName.get(map);
   v.sprite.material.map = map; (v.sprite.customDepthMaterial as THREE.MeshDepthMaterial).map = map;
 }
-signs.push(art('sign'), art('sign', 2));
+signs.push(art('sign'));
 const sign = new THREE.Mesh(new THREE.PlaneGeometry(1.6, 1.25), new THREE.MeshBasicMaterial({ map: signs[0], alphaTest: .5 }));
-sign.position.set(-6.3, 2.5, -8.8); levelGroups[1].add(sign);
+sign.position.set(-6.3 + YARD_X, 2.5, -8.8); levelGroups[2].add(sign);
 // The violet hat mat on the counter top (colour = you can do something here) and the trophy hat once it lands.
-const landingCover = LEVELS[3].covers.find(c => c.id === LEVELS[3].landing?.cover)!;
+const landingCover = LEVELS[1].covers.find(c => c.id === LEVELS[1].landing?.cover)!;
 const hatTrophy = new THREE.Mesh(new THREE.PlaneGeometry(BODY.hat.w, BODY.hat.h).translate(0, BODY.hat.h / 2, 0), new THREE.MeshBasicMaterial({ map: textures.hat, alphaTest: .5, side: THREE.DoubleSide }));
 hatTrophy.visible = false; hatTrophy.renderOrder = 2;
 // The world is B/W film; only characters, grabbable props, the player's arms and FX keep colour.
@@ -261,9 +271,9 @@ for (const level of LEVEL_IDS) greyscaleWorld(levelGroups[level]);
 greyColor(ink.color);
 {
   const mat = new THREE.Mesh(new THREE.BoxGeometry(1.1, .02, .5), new THREE.MeshStandardMaterial({ color: '#7c3ae6', roughness: .7 }));
-  mat.position.set(.9, landingCover.max.y + .01, (landingCover.min.z + landingCover.max.z) / 2 + .05); levelGroups[3].add(mat, hatTrophy);
+  mat.position.set(.9, landingCover.max.y + .01, (landingCover.min.z + landingCover.max.z) / 2 + .05); levelGroups[1].add(mat, hatTrophy);
   const bell = new THREE.Mesh(new THREE.SphereGeometry(.13, 16, 8, 0, Math.PI * 2, 0, Math.PI / 2), new THREE.MeshStandardMaterial({ color: '#e0a83a', metalness: .6, roughness: .3 }));
-  bell.position.set(-.1, landingCover.max.y, mat.position.z); levelGroups[3].add(bell);
+  bell.position.set(-.1, landingCover.max.y, mat.position.z); levelGroups[1].add(bell);
 }
 
 function ringTexture() {
@@ -334,10 +344,11 @@ function makeView(t: Actor): ActorView {
 }
 function disposeView(v: ActorView) { actorGroup.remove(v.group); v.group.traverse(o => { if (o instanceof THREE.Mesh && o.geometry) o.geometry.dispose(); }); v.sprite.material.dispose(); }
 
+// The menu stands in the bar (level 1): the walrus by the piano, the halo dog, the weasel behind the counter.
 const menuActors: Actor[] = [
-  { id: -1, kind: 'enemy', x: -2.45, y: 0, z: 2.25, age: 1, deadline: 60 },
-  { id: -2, kind: 'dog', x: .45, y: 0, z: -.85, age: 1, deadline: Infinity },
-  { id: -3, kind: 'enemy', x: .95, y: 0, z: -2.35, age: 1, deadline: 60 },
+  { id: -1, kind: 'enemy', skin: 'walrus', x: -2.55, y: 0, z: 2.2, age: 1, deadline: 60 },
+  { id: -2, kind: 'dog', x: .2, y: 0, z: -.7, age: 1, deadline: Infinity },
+  { id: -3, kind: 'enemy', skin: 'weasel', x: 1.9, y: .3, z: -3.15, age: 1, deadline: 60 },
 ];
 const visibleActors = () => game.mode === 'menu' || game.mode === 'select' ? menuActors : game.actors;
 
@@ -470,9 +481,11 @@ let swing: Swing | null = null;
 let shake = 0, hitstop = 0, timeScale = 1;
 const strikes: { action: Action; outcome: Outcome; kind: string; id: number | string | null; staminaBefore: number; staminaAfter: number }[] = [];
 
+/** Horizontal camera pan along wide levels (world units; 0 = centre). Aim always raycasts from the real camera. */
+let pan = 0, panVel = 0;
 function resize() {
   renderer.setSize(innerWidth, innerHeight);
-  const rig = cameraFor(innerWidth, innerHeight);
+  const rig = cameraFor(innerWidth, innerHeight, game.mode === 'menu' || game.mode === 'select' ? 0 : pan);
   camera.aspect = innerWidth / innerHeight; camera.fov = rig.fov; camera.updateProjectionMatrix();
   camera.position.set(rig.position.x, rig.position.y, rig.position.z); camera.lookAt(rig.look.x, rig.look.y, rig.look.z);
   if (game.mode === 'menu' || game.mode === 'select') { camera.position.x -= innerWidth < 650 ? 0 : 1.2; camera.lookAt(rig.look.x - (innerWidth < 650 ? 0 : 1.8), rig.look.y, rig.look.z); }
@@ -552,17 +565,67 @@ function land(s: Swing) {
   syncActors(runtime); renderUi();
 }
 
-canvas.addEventListener('pointermove', e => { pointer.set((e.clientX / innerWidth) * 2 - 1, -(e.clientY / innerHeight) * 2 + 1); updateCrosshair(); });
+// -------------------------------------------------------------------------------------------------
+// CAMERA PAN on wide levels: arrows / A-D, the mouse resting near a screen edge (eases in), or a touch drag.
+// A touch that moves less than DRAG_PX is still a tap that places the aim.
+// -------------------------------------------------------------------------------------------------
+const panKeys = new Set<string>();
+let mouseX = -1, edgeHold = 0;
+const DRAG_PX = 14, EDGE = .07, PAN_SPEED = 11;
+let drag: { id: number; x: number; y: number; pan: number; moved: boolean } | null = null;
+const canPan = () => game.mode === 'play' && LEVELS[game.level].pan > 0;
+/** World units per screen pixel at the mid-ground depth, so a drag moves the street under the finger. */
+function worldPerPx() { const d = camera.position.z + 2, half = Math.tan(camera.fov * Math.PI / 360) * d * camera.aspect; return 2 * half / innerWidth; }
+function panDirection() {
+  let dir = (panKeys.has('ArrowRight') || panKeys.has('KeyD') ? 1 : 0) - (panKeys.has('ArrowLeft') || panKeys.has('KeyA') ? 1 : 0);
+  if (!dir && mouseX >= 0) { const f = mouseX / innerWidth; if (f < EDGE) dir = -(1 - f / EDGE); else if (f > 1 - EDGE) dir = (f - (1 - EDGE)) / EDGE; }
+  return dir;
+}
+function updatePan(dt: number) {
+  if (!canPan()) { panVel = 0; edgeHold = 0; return; }
+  const dir = drag?.moved ? 0 : panDirection();
+  // Smooth acceleration: the longer you lean on an edge or key, the faster the street slides (up to PAN_SPEED).
+  edgeHold = dir ? Math.min(1, edgeHold + dt * 1.6) : 0;
+  const want = dir * PAN_SPEED * (.35 + .65 * edgeHold), k = 1 - Math.exp(-dt * (dir ? 6 : 10));
+  panVel += (want - panVel) * k;
+  if (Math.abs(panVel) > .01) pan = clampPan(game.level, pan + panVel * dt);
+}
+function setPointer(e: PointerEvent) { pointer.set((e.clientX / innerWidth) * 2 - 1, -(e.clientY / innerHeight) * 2 + 1); updateCrosshair(); }
+canvas.addEventListener('pointermove', e => {
+  if (e.pointerType === 'mouse') mouseX = e.clientX;
+  if (drag && e.pointerId === drag.id) {
+    const dx = e.clientX - drag.x;
+    if (!drag.moved && Math.hypot(dx, e.clientY - drag.y) > DRAG_PX && canPan() && !game.ultActive) drag.moved = true;
+    if (drag.moved) { pan = clampPan(game.level, drag.pan - dx * worldPerPx()); return; }
+  }
+  if (e.pointerType !== 'touch' || game.ultActive) setPointer(e);
+});
+canvas.addEventListener('pointerleave', () => { mouseX = -1; });
 canvas.addEventListener('pointerdown', e => {
   if (game.mode !== 'play') return;
-  pointer.set((e.clientX / innerWidth) * 2 - 1, -(e.clientY / innerHeight) * 2 + 1);
-  updateCrosshair();
-  if (game.ultActive) return; // during the ult the pointer / finger only steers the stream
-  if (e.pointerType === 'touch') { game.message = 'Прицел стоит. Жми «Удар» или «Хватай».'; updateHud(); }
-  else perform(e.button === 2 ? 'grab' : 'punch');
+  if (e.pointerType === 'touch') {
+    drag = { id: e.pointerId, x: e.clientX, y: e.clientY, pan, moved: false };
+    if (game.ultActive) setPointer(e); // during the ult the finger steers the stream
+    return;
+  }
+  setPointer(e);
+  if (game.ultActive) return; // during the ult the pointer only steers the stream
+  perform(e.button === 2 ? 'grab' : 'punch');
 });
+const endDrag = (e: PointerEvent) => {
+  if (!drag || e.pointerId !== drag.id) return;
+  const tap = !drag.moved; drag = null;
+  if (!tap || game.mode !== 'play') return;
+  setPointer(e);
+  if (!game.ultActive) { game.message = 'Прицел стоит. Жми «Удар» или «Хватай».'; updateHud(); }
+};
+canvas.addEventListener('pointerup', endDrag);
+canvas.addEventListener('pointercancel', e => { if (drag && e.pointerId === drag.id) drag = null; });
+addEventListener('keyup', e => panKeys.delete(e.code));
+addEventListener('blur', () => panKeys.clear());
 canvas.addEventListener('contextmenu', e => e.preventDefault());
 addEventListener('keydown', e => {
+  if (['ArrowLeft', 'ArrowRight', 'KeyA', 'KeyD'].includes(e.code)) { panKeys.add(e.code); if (canPan()) e.preventDefault(); }
   if (e.code === 'Escape' && !document.hidden) { game.pause(); renderUi(); }
   if ((e.code === 'Space' || e.code === 'KeyE') && !(e.target instanceof HTMLButtonElement)) { e.preventDefault(); if (!e.repeat) perform(e.code === 'Space' ? 'punch' : 'grab'); }
 });
@@ -573,38 +636,43 @@ document.addEventListener('freeze', suspendPage);
 addEventListener('pagehide', suspendPage);
 
 function button(id: string, handler: () => void) { document.getElementById(id)?.addEventListener('click', () => { unlockAudio(); sound('ui'); handler(); }); }
+function startLevel(level: number) { if (game.start(level)) { pan = 0; panVel = 0; lastMode = ''; } renderUi(); }
 function chrome() { return '<div class="topline"><div class="brand"><span>↗</span> ДВОР ДА ДЕЛО</div><div class="tag">РУКИ ДЛИННЕЕ. ДЕНЬ ЛУЧШЕ.</div></div>'; }
 
 function renderUi() {
   const mode = game.mode;
   if (mode !== lastMode) { lastMode = mode; resize(); }
-  sign.material.map = signs[Math.min(game.level, 2) - 1];
   applyLook(shownLevel());
   showLevelGroup();
   app.dataset.mode = mode; app.dataset.level = String(game.level);
   if (mode === 'menu') {
-    ui.innerHTML = chrome() + '<section class="panel"><div class="eyebrow">Дворовая потасовка на резиновых руках</div><h1>ДЛИННЫЕ<br><em>РУКИ.</em></h1><p>Двор живой: задиры прячутся за бочками и заборами, высовываются и замахиваются. Тянись, бей, уворачивайся. Пса с нимбом не трогай.</p><div class="buttons"><button id="start" class="primary">ВО ДВОР →</button><button id="how" class="secondary">КАК ИГРАТЬ?</button></div><div class="fine">Без беготни. Только ловкость рук.</div></section><div class="stamp">100%<b>РАЗМАХ</b>0% СЕРЬЁЗНОСТИ</div><div class="footer"><span>ТИХИЙ ДВОР · ШУМНЫЙ ПЕРЕУЛОК' + (game.progress.unlocked >= 3 ? ' · БАР' : '') + '</span><span>РЕКОРД: ' + game.progress.best + ' / РЕЗИНОВЫЕ РУКИ 1930-х</span></div>';
+    ui.innerHTML = chrome() + '<section class="panel"><div class="eyebrow">Потасовка на резиновых руках</div><h1>ДЛИННЫЕ<br><em>РУКИ.</em></h1><p>Сначала бар, потом улица. Задиры прячутся за пианино, стойкой, бочками и заборами, высовываются и замахиваются. Тянись, бей, бросай всё, что под рукой. Пса с нимбом не трогай.</p><div class="buttons"><button id="start" class="primary">В БАР →</button><button id="how" class="secondary">КАК ИГРАТЬ?</button></div><div class="fine">Без беготни. Только ловкость рук.</div></section><div class="stamp">100%<b>РАЗМАХ</b>0% СЕРЬЁЗНОСТИ</div><div class="footer"><span>БАР «ДЛИННЫЕ РУКИ» · УЛИЦА</span><span>РЕКОРД: ' + game.progress.best + ' / РЕЗИНОВЫЕ РУКИ 1930-х</span></div>';
     button('start', () => { game.mode = 'select'; renderUi(); });
     button('how', () => {
-      ui.innerHTML += '<div class="shade"></div><section class="panel centerpanel"><span class="note">ПАМЯТКА ДЛИННОРУКОГО</span><h2>Целься. Тянись.<br>Не трогай пса.</h2><p>Кулак летит ровно туда, куда ты целишься: никакого автоприцела. Задиры прячутся за бочками, ящиками и забором — бей, когда высунутся. Промах тоже тратит силы.</p><p>ЛКМ / пробел — удар. ПКМ / E — хватай предмет, затем бросай в задиру. Задира краснеет и замахивается — бей раньше, чем он ударит. Пёс с нимбом — неприкосновенный.</p><button id="close" class="primary">ПОНЯТНО →</button></section>';
+      ui.innerHTML += '<div class="shade"></div><section class="panel centerpanel"><span class="note">ПАМЯТКА ДЛИННОРУКОГО</span><h2>Целься. Тянись.<br>Не трогай пса.</h2><p>Кулак летит ровно туда, куда ты целишься: никакого автоприцела. Задиры прячутся за укрытиями — бей, когда высунутся. У каждого своя полоска здоровья. Промах тоже тратит силы.</p><p>ЛКМ / пробел — удар. ПКМ / E — хватай предмет, затем бросай: он летит сам, по дуге. Улица широкая: стрелки, A/D, мышь у края экрана или свайп — камера едет. Пёс с нимбом — неприкосновенный.</p><button id="close" class="primary">ПОНЯТНО →</button></section>';
       button('close', renderUi);
     });
   } else if (mode === 'select') {
-    ui.innerHTML = chrome() + '<div class="shade"></div><section class="panel centerpanel"><div class="eyebrow">Выбери свой размах</div><h2>ЗНАКОМЫЕ<br>ВСЁ ДВОРЫ.</h2><div class="levels"><button id="level1" class="primary level"><span>01 / ТИХИЙ ДВОР<br><small>9 задир · мягкий разогрев</small></span><b>↗</b></button><button id="level2" class="secondary level" ' + (game.progress.unlocked < 2 ? 'disabled' : '') + '><span>02 / ШУМНЫЙ ПЕРЕУЛОК · СУМЕРКИ<br><small>' + (game.progress.unlocked < 2 ? 'Сначала наведи порядок в первом дворе' : '14 задир · держи темп') + '</small></span><b>' + (game.progress.unlocked < 2 ? '⊗' : '↗') + '</b></button><button id="level3" class="secondary level" ' + (game.progress.unlocked < 3 ? 'disabled' : '') + '><span>03 / БАР «ДЛИННЫЕ РУКИ»<br><small>' + (game.progress.unlocked < 3 ? 'Сначала разберись в переулке' : '12 посетителей · ведите себя прилично') + '</small></span><b>' + (game.progress.unlocked < 3 ? '⊗' : '↗') + '</b></button></div><div class="buttons"><button id="back" class="secondary">← НАЗАД</button></div></section>';
-    button('level1', () => { game.start(1); renderUi(); });
-    button('level2', () => { game.start(2); renderUi(); });
-    button('level3', () => { game.start(3); renderUi(); });
+    const locked = game.progress.unlocked < 2;
+    ui.innerHTML = chrome() + '<div class="shade"></div><section class="panel centerpanel"><div class="eyebrow">Выбери свой размах</div><h2>КУДА<br>СЕГОДНЯ?</h2><div class="levels"><button id="level1" class="primary level"><span>01 / БАР «ДЛИННЫЕ РУКИ»<br><small>' + LEVELS[1].goal + ' посетителей · ведите себя прилично</small></span><b>↗</b></button><button id="level2" class="secondary level" ' + (locked ? 'disabled' : '') + '><span>02 / УЛИЦА: ДВОР И ПЕРЕУЛОК<br><small>' + (locked ? 'Сначала наведи порядок в баре' : LEVELS[2].goal + ' задир · широкая панорама, крути камеру') + '</small></span><b>' + (locked ? '⊗' : '↗') + '</b></button></div><div class="buttons"><button id="back" class="secondary">← НАЗАД</button></div></section>';
+    button('level1', () => startLevel(1));
+    button('level2', () => startLevel(2));
     button('back', () => { game.mode = 'menu'; renderUi(); });
   } else {
-    ui.innerHTML = '<div class="hud"><div class="hudbox"><div id="hearts" class="hearts"></div><div class="energy"><i id="energy"></i></div><div class="small" style="margin-top:6px">СИЛЫ <span id="stamina"></span></div></div><div class="hudbox"><div class="small">ТВОЙ СЧЁТ</div><div id="score" class="score"></div><div id="combo" class="small"></div></div><button id="pause" class="pause" aria-label="Пауза">Ⅱ</button></div><div id="ultmeter" class="ultmeter" hidden><b>УЛЬТА</b><span><i id="ultfill"></i></span></div><div id="progress" class="progress"></div><div class="crosshair"></div><div id="message" class="message" role="status"></div><div class="controls"><button id="punch" class="primary">УДАР ↗<small>ЛКМ / ПРОБЕЛ · 24 СИЛЫ</small></button><button id="grab" class="secondary">ХВАТАЙ ◎<small>ПКМ / E · 12 СИЛ</small></button></div>';
+    ui.innerHTML = '<div class="hud"><div class="hudbox"><div id="hearts" class="hearts"></div><div class="energy"><i id="energy"></i></div><div class="small" style="margin-top:6px">СИЛЫ <span id="stamina"></span></div></div><div class="hudbox"><div class="small">ТВОЙ СЧЁТ</div><div id="score" class="score"></div><div id="combo" class="small"></div></div><button id="pause" class="pause" aria-label="Пауза">Ⅱ</button></div><div id="ultmeter" class="ultmeter" hidden><b>УЛЬТА</b><span><i id="ultfill"></i></span></div><div id="progress" class="progress"></div><div class="crosshair"></div><div id="message" class="message" role="status"></div>' + (LEVELS[game.level].pan > 0 ? '<div id="panL" class="panhint left" aria-hidden="true"><b>◀</b><span></span></div><div id="panR" class="panhint right" aria-hidden="true"><b>▶</b><span></span></div>' : '') + '<div class="controls"><button id="punch" class="primary">УДАР ↗<small>ЛКМ / ПРОБЕЛ · 24 СИЛЫ</small></button><button id="grab" class="secondary">ХВАТАЙ ◎<small>ПКМ / E · 12 СИЛ</small></button></div>';
     button('punch', () => perform('punch'));
     button('grab', () => perform('grab'));
     button('pause', () => { game.pause(); renderUi(); });
     if (mode === 'pause' || mode === 'result') {
-      const result = mode === 'result';
-      ui.innerHTML += '<div class="shade"></div><section class="panel centerpanel"><span class="note">' + (result ? (game.won ? 'ДВОР В ПОРЯДКЕ' : 'БЫВАЕТ И ТАК') : 'РУКИ НА ПЕРЕРЫВЕ') + '</span><h2>' + (result ? (game.won ? 'КРАСИВО<br>РАЗОБРАЛСЯ!' : 'НЕ ТОТ<br>РАЗМАХ.') : 'ВЫДОХНИ.<br>ДВОР ПОДОЖДЁТ.') + '</h2><p>' + (result ? 'Счёт: <b>' + game.score + '</b> · Рекорд: ' + game.progress.best + (game.won ? (game.level === 1 ? '<br>Шумный переулок открыт. Есть ещё силы?' : game.level === 2 ? '<br>Открыт бар «Длинные руки». Ведите себя прилично.' : '<br>Бар закрыт на проветривание.') : '<br>Ещё попытка — все сердца снова с тобой.') : 'Время остановилось. Ни один задира не ударит исподтишка.') + '</p><div class="buttons"><button id="resume" class="primary">' + (result ? 'ЕЩЁ РАЗ ↗' : 'ПРОДОЛЖИТЬ →') + '</button><button id="select" class="secondary">ВЫБОР ДВОРА</button></div></section>';
-      button('resume', () => { if (result) game.start(game.level); else game.pause(); renderUi(); });
+      const result = mode === 'result', won = result && game.won;
+      const actions = result ? resultActions(game) : [{ id: 'resume', label: 'ПРОДОЛЖИТЬ →', primary: true }, { id: 'select', label: 'ВЫБОР УРОВНЯ', primary: false }];
+      const after = !won ? 'Ещё попытка — все сердца снова с тобой.' : game.level < LAST_LEVEL ? 'Открыта улица: двор и переулок на одной широкой панораме.' : 'Улица чиста. Бар открыт до утра.';
+      ui.innerHTML += '<div class="shade"></div><section class="panel centerpanel"><span class="note">' + (result ? (won ? 'ПОРЯДОК НАВЕДЁН' : 'БЫВАЕТ И ТАК') : 'РУКИ НА ПЕРЕРЫВЕ') + '</span><h2>' + (result ? (won ? 'КРАСИВО<br>РАЗОБРАЛСЯ!' : 'НЕ ТОТ<br>РАЗМАХ.') : 'ВЫДОХНИ.<br>ЗАДИРЫ ПОДОЖДУТ.') + '</h2><p>' + (result ? 'Счёт: <b>' + game.score + '</b> · Рекорд: ' + game.progress.best + '<br>' + after : 'Время остановилось. Ни один задира не ударит исподтишка.') + '</p><div class="buttons">' + actions.map(a => `<button id="${a.id}" class="${a.primary ? 'primary' : 'secondary'}">${a.label}</button>`).join('') + '</div></section>';
+      button('resume', () => { game.pause(); renderUi(); });
+      button('next', () => startLevel(game.level + 1));
+      button('retry', () => startLevel(game.level));
       button('select', () => { game.mode = 'select'; renderUi(); });
+      button('menu', () => { game.mode = 'menu'; renderUi(); });
     }
     updateHud();
   }
@@ -640,7 +708,8 @@ function updateHud() {
   set('stamina', Math.floor(game.stamina) + '');
   set('score', game.score.toString().padStart(5, '0'));
   set('combo', game.combo > 1 ? 'КОМБО ×' + game.combo : 'ДАЙ ИМ РАЗМАХ');
-  set('progress', `${['ДВОР', 'ПЕРЕУЛОК', 'БАР'][game.level - 1]} / ${game.defeated} ИЗ ${game.goal} ЗАДИР`);
+  set('progress', `${isBar() ? 'БАР' : 'УЛИЦА'} / ${game.defeated} ИЗ ${game.goal} ЗАДИР`);
+  updatePanHints();
   const meter = document.getElementById('ultmeter'); if (meter) { meter.hidden = !game.ultActive; const f = document.getElementById('ultfill'); if (f) f.style.width = Math.round(game.ult.meter * 100) + '%'; }
   // Published for players' assistive tools and the production check: where a thrown hat would land on the counter.
   const zone = game.mode === 'play' && game.held === 'hat' ? JSON.stringify(landingPoint()) : '';
@@ -650,6 +719,26 @@ function updateHud() {
   set('message', game.message);
   const energy = document.getElementById('energy'); if (energy) energy.style.width = game.stamina + '%';
   const grab = document.getElementById('grab'); if (grab) grab.innerHTML = game.held ? 'БРОСАЙ ↗<small>' + (game.held === 'hat' ? 'КОТЕЛОК' : 'В ЗАДИРУ') + ' · ' + costOf('grab', true) + ' СИЛ</small>' : 'ХВАТАЙ ◎<small>ПКМ / E · 12 СИЛ</small>';
+}
+
+/**
+ * Subtle edge arrows on wide levels: shown while the street continues that way, with a count of bullies out of
+ * view on that side; they pulse red when one of them is winding up a swing.
+ */
+function updatePanHints() {
+  const range = LEVELS[game.level].pan; if (!range) return;
+  const side = { L: { n: 0, hot: false }, R: { n: 0, hot: false } };
+  for (const t of game.actors) {
+    if (t.kind !== 'enemy') continue;
+    const sx = toScreen(pose(game.level, t, motion())).x, k = sx < 0 ? side.L : sx > innerWidth ? side.R : null;
+    if (k) { k.n++; if (t.deadline - t.age < WINDUP * 1.6) k.hot = true; }
+  }
+  for (const [id, more, s] of [['panL', pan > -range + .05, side.L], ['panR', pan < range - .05, side.R]] as const) {
+    const el = document.getElementById(id); if (!el) continue;
+    const state = (more || s.n ? 'on' : '') + (s.hot ? ' hot' : '');
+    if (el.dataset.state !== state) { el.dataset.state = state; el.classList.toggle('on', more || s.n > 0); el.classList.toggle('hot', s.hot); }
+    const label = s.n ? String(s.n) : ''; const span = el.querySelector('span'); if (span && span.textContent !== label) span.textContent = label;
+  }
 }
 
 /** The on-screen buttons the resting gloves must not hide behind (phones put them full-width at the bottom). */
@@ -744,7 +833,7 @@ function drawArm(time: number) {
   g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(0, 0, armCanvas.width, armCanvas.height);
   if (game.mode !== 'play' && game.mode !== 'pause') return;
   g.setTransform(dpr, 0, 0, dpr, 0, 0);
-  if (game.level === 3) drawStream(g, W, H, time, armMetrics(W, H).ink);
+  if (isBar()) drawStream(g, W, H, time, armMetrics(W, H).ink);
   const { ink, rim } = armMetrics(W, H), avoid = avoidRect, s = swing, k = s ? s.phase : 1;
   const spot = s ? { x: s.spot.x * W, y: s.spot.y * H } : { x: 0, y: 0 };
   const active = s && k < 1 ? sideFor(spot, W) : 0;
@@ -791,6 +880,7 @@ function frame() {
   if (lastHp > game.hp && motion()) { const flash = document.createElement('div'); flash.className = 'flash'; ui.append(flash); setTimeout(() => flash.remove(), 400); }
   lastHp = game.hp;
   syncActors(runtime);
+  updatePan(game.mode === 'play' ? dt : 0);
   if (game.mode === 'play') { updateHud(); if ((measureTick -= dt) <= 0) { measureTick = .25; measureControls(); } }
 
   if (swing && game.mode !== 'pause') {
@@ -815,8 +905,8 @@ function frame() {
   drawArm(runtime);
 }
 function resizeCameraShake(dt: number) {
-  const rig = cameraFor(innerWidth, innerHeight);
-  if (game.mode === 'menu' || game.mode === 'select') return;
+  if (game.mode === 'menu' || game.mode === 'select') { placeSun(0); return; }
+  const rig = cameraFor(innerWidth, innerHeight, pan); placeSun(pan);
   rest.set(rig.position.x, rig.position.y, rig.position.z);
   if (shake > 0) { shake = Math.max(0, shake - dt * .9); camera.position.set(rest.x + (Math.random() - .5) * shake, rest.y + (Math.random() - .5) * shake, rest.z); }
   else camera.position.copy(rest);
@@ -846,6 +936,8 @@ if (import.meta.env.DEV) {
       },
       swing: () => swing ? { phase: swing.phase, resolved: swing.resolved, outcome: swing.outcome ?? null, shot: swing.shot.kind } : null,
       setTimeScale(v: number) { timeScale = v; },
+      setPan(x: number) { pan = clampPan(game.level, x); resizeCameraShake(0); return pan; },
+      pan: () => pan,
       strikes: () => strikes.slice(),
       webgl: () => ({ calls: renderer.info.render.calls, triangles: renderer.info.render.triangles, context: renderer.getContext().getParameter(renderer.getContext().VERSION) }),
     },

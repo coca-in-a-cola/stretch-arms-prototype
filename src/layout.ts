@@ -4,14 +4,19 @@ import type { Hittable, Vec3 } from './aim';
 
 export type Layer = 'foreground' | 'midground' | 'background';
 export type CoverLook = 'barrel' | 'crate' | 'plank' | 'rail' | 'post' | 'wall' | 'interior' | 'dumpster' | 'pallet' | 'van' | 'barrier' | 'piano' | 'table' | 'counter' | 'shelves';
-/** Who peeks from a slot: the yard cat, or one of the bar patrons (level 3). */
+/** Who peeks from a slot: the street cat, or one of the bar patrons. */
 export type Skin = 'cat' | 'walrus' | 'bulldog' | 'weasel';
 export type PropKind = 'bottle' | 'barrel' | 'hat' | 'mug' | 'whiskey';
 export interface Cover { id: string; look: CoverLook; layer: Layer; min: Vec3; max: Vec3; color: string; }
 /** Enemy spawn point behind a cover. `hide` is where the sprite waits fully occluded; it slides/rises to `x,y`. */
 export interface Slot { x: number; y: number; z: number; layer: Layer; hideX: number; hideY: number; skin?: Skin; }
 export interface LevelLayout {
-  covers: Cover[]; slots: Slot[]; order: number[]; dog: Vec3; prop: Vec3; deadline: number; goal: number;
+  name: string; look: 'bar' | 'street';
+  /** Half-width of the camera pan range (0 = a single screen). */
+  pan: number;
+  covers: Cover[]; slots: Slot[]; order: number[]; dogs: Vec3[]; prop: Vec3; deadline: number; goal: number;
+  /** Cap on enemies out at once (wide levels). */
+  maxAlive?: number;
   /** Throwables that respawn on the floor, alternating. */
   props?: [PropKind, PropKind];
   /** Secret hat spot (on a stool) and the landing zone it must be thrown onto: the top band of a cover. */
@@ -63,18 +68,21 @@ function fence(id: string, z: number, x0: number, x1: number, h: number, color: 
   return out;
 }
 
-const level1: LevelLayout = {
-  goal: 9, deadline: 6.2,
+const shiftCover = (c: Cover, dx: number): Cover => ({ ...c, min: { ...c.min, x: c.min.x + dx }, max: { ...c.max, x: c.max.x + dx } });
+const shiftSlot = (s: Slot, dx: number): Slot => ({ ...s, x: s.x + dx, hideX: s.hideX + dx });
+
+/** The wide street is two halves on one panorama: the quiet yard on the left, the dusk alley on the right. */
+export const YARD_X = -8, ALLEY_X = 8;
+const yard = {
   covers: [
-    // Foreground / cover layer
     box('barrel-a', 'barrel', 'foreground', -2.75, 0, 3.0, .92, 1.15, .92, '#c83c32'),
     box('barrel-b', 'barrel', 'foreground', -1.92, 0, 3.35, .8, .98, .8, '#2f6f73'),
     box('crate-a', 'crate', 'foreground', 2.9, 0, 3.05, 1.15, 1.15, 1.1, '#c9944f'),
     box('crate-b', 'crate', 'foreground', 3.05, 1.15, 3.05, .72, .72, .72, '#d9a862'),
     // Mid-ground fence with gaps
     ...fence('fence', -1.6, -4.6, 4.6, 1.3, '#a8754c'),
-    // Background: courtyard block with windows
-    ...facade('block', -9, -13, 13, 9, [{ sill: 1.7, h: 1.65, w: 1.7, xs: [-4.2, 0, 4.2] }, { sill: 4.6, h: 1.5, w: 1.5, xs: [-6.5, -2.1, 2.1, 6.5] }], '#c9c3ae'),
+    // Background: courtyard block with windows (stops where the alley's shopfront begins)
+    ...facade('block', -9, -13, 8, 9, [{ sill: 1.7, h: 1.65, w: 1.7, xs: [-4.2, 0, 4.2] }, { sill: 4.6, h: 1.5, w: 1.5, xs: [-6.5, -2.1, 2.1, 6.5] }], '#c9c3ae'),
   ],
   slots: [
     { x: -2.45, y: 0, z: 2.25, layer: 'foreground', hideX: -2.45, hideY: -1.2 },
@@ -83,20 +91,15 @@ const level1: LevelLayout = {
     { x: 1.95, y: 0, z: 2.35, layer: 'foreground', hideX: 2.9, hideY: -.85 },
     { x: .95, y: 0, z: -2.35, layer: 'midground', hideX: .95, hideY: -1.05 },
     { x: -4.2, y: .72, z: -9.5, layer: 'background', hideX: -4.2, hideY: -.35 },
-  ],
-  order: [0, 1, 2, 3, 4, 5],
-  dog: { x: .45, y: 0, z: -.85 },
-  prop: { x: -.7, y: 0, z: 3.75 },
+  ] as Slot[],
 };
-
-const level2: LevelLayout = {
-  goal: 14, deadline: 4.6,
+const alley = {
   covers: [
     box('dumpster', 'dumpster', 'foreground', -2.6, 0, 3.0, 2.0, 1.22, 1.1, '#3f7b55'),
     box('pallets', 'pallet', 'foreground', 2.95, 0, 3.15, 1.3, 1.3, 1.1, '#b98a52'),
     box('van', 'van', 'midground', -2.1, .25, -2.6, 3.4, 1.85, 1.7, '#e9e2cd'),
     box('barrier', 'barrier', 'midground', 2.55, 0, -1.9, 2.5, 1.02, .55, '#b8b7ac'),
-    ...facade('shop', -11, -6, 6, 9, [{ sill: 1.3, h: 1.6, w: 2.0, xs: [-2.8, 2.8] }, { sill: 4.3, h: 1.6, w: 1.6, xs: [0] }], '#d58f86'),
+    ...facade('shop', -11, -7, 7, 9, [{ sill: 1.3, h: 1.6, w: 2.0, xs: [-2.8, 2.8] }, { sill: 4.3, h: 1.6, w: 1.6, xs: [0] }], '#d58f86'),
   ],
   slots: [
     { x: 2.45, y: 0, z: 2.45, layer: 'foreground', hideX: 3.15, hideY: -1.1 },
@@ -106,15 +109,12 @@ const level2: LevelLayout = {
     { x: 2.8, y: .45, z: -11.5, layer: 'background', hideX: 2.8, hideY: -.75 },
     { x: 2.9, y: 0, z: -2.55, layer: 'midground', hideX: 2.9, hideY: -1.0 },
     { x: -2.8, y: .45, z: -11.5, layer: 'background', hideX: -2.8, hideY: -.75 },
-  ],
-  order: [0, 2, 1, 3, 4, 5, 6],
-  dog: { x: 2.3, y: 0, z: -1.25 },
-  prop: { x: .6, y: 0, z: 3.8 },
+  ] as Slot[],
 };
 
-/** Level 3, the secret bar: piano and a draped table in front, the long counter mid-ground, a swinging door at the back. */
-const level3: LevelLayout = {
-  goal: 12, deadline: 5.2,
+/** Level 1, the bar: piano and a draped table in front, the long counter mid-ground, a swinging door at the back. */
+const bar: LevelLayout = {
+  name: 'БАР «ДЛИННЫЕ РУКИ»', look: 'bar', pan: 0, goal: 12, deadline: 5.2,
   covers: [
     box('piano', 'piano', 'foreground', -2.75, 0, 3.0, 1.9, 1.3, .75, '#3b2c24'),
     box('table', 'table', 'foreground', 2.95, 0, 3.1, 1.3, 1.05, 1.1, '#ece6d2'),
@@ -130,15 +130,28 @@ const level3: LevelLayout = {
     { x: 1.9, y: .3, z: -3.15, layer: 'midground', hideX: 1.9, hideY: -.9, skin: 'weasel' },
   ],
   order: [0, 1, 2, 3, 4],
-  dog: { x: .2, y: 0, z: -.7 },
+  dogs: [{ x: .2, y: 0, z: -.7 }],
   prop: { x: -.9, y: 0, z: 3.8 },
   props: ['mug', 'whiskey'],
   hat: { x: .95, y: .78, z: 3.45 },
   landing: { cover: 'counter', band: .4 },
 };
 
-export const LEVELS: Record<number, LevelLayout> = { 1: level1, 2: level2, 3: level3 };
-export const LAST_LEVEL = 3;
+/** Level 2, the street: a panorama about three screens wide — the yard (left) runs into the dusk alley (right). */
+const street: LevelLayout = {
+  name: 'УЛИЦА: ДВОР И ПЕРЕУЛОК', look: 'street', pan: 8, goal: 22, deadline: 5.4, maxAlive: 5,
+  covers: [...yard.covers.map(c => shiftCover(c, YARD_X)), ...alley.covers.map(c => shiftCover(c, ALLEY_X))],
+  slots: [...yard.slots.map(s => shiftSlot(s, YARD_X)), ...alley.slots.map(s => shiftSlot(s, ALLEY_X))],
+  // Yard slots are 0..5, alley slots 6..12: alternate so both ends of the street stay busy.
+  order: [0, 6, 4, 9, 2, 7, 3, 11, 1, 8, 5, 12, 10],
+  dogs: [{ x: .45 + YARD_X, y: 0, z: -.85 }, { x: 2.3 + ALLEY_X, y: 0, z: -1.25 }],
+  prop: { x: -.7, y: 0, z: 3.75 },
+};
+
+export const LEVELS: Record<number, LevelLayout> = { 1: bar, 2: street };
+export const LAST_LEVEL = 2;
+/** Camera pan offset clamped to the level's panorama. */
+export const clampPan = (level: number, x: number) => { const p = LEVELS[level]?.pan ?? 0; return Math.max(-p, Math.min(p, x)); };
 
 /** True when a throw that struck `coverId` at `point` landed in the level's hat zone (top band of the counter). */
 export function onLanding(level: number, coverId: string | number | undefined, point: Vec3 | undefined): boolean {
@@ -198,9 +211,9 @@ export function hittables(level: number, actors: readonly { id: number; kind: Bo
 }
 
 export interface CameraRig { fov: number; position: Vec3; look: Vec3; }
-export function cameraFor(width: number, height: number): CameraRig {
+export function cameraFor(width: number, height: number, pan = 0): CameraRig {
   const fov = width < 650 ? 60 : 50; const aspect = width / Math.max(1, height);
   const halfH = Math.atan(Math.tan(fov * Math.PI / 360) * aspect);
   const z = Math.max(9.5, 3 + 3.1 / Math.tan(halfH));
-  return { fov, position: { x: 0, y: 2.3 + (z - 9.5) * .12, z }, look: { x: 0, y: 1.35 + (z - 9.5) * .1, z: -3 } };
+  return { fov, position: { x: pan, y: 2.3 + (z - 9.5) * .12, z }, look: { x: pan, y: 1.35 + (z - 9.5) * .1, z: -3 } };
 }

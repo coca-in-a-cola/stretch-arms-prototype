@@ -1,17 +1,20 @@
 import { describe, expect, test } from 'bun:test';
-import { Game, readProgress, type Progress } from '../src/game';
+import { Game, readProgress, loadProgress, resultActions, PROGRESS_KEY, LEGACY_PROGRESS_KEY, type Progress } from '../src/game';
 
 describe('deterministic arcade rules', () => {
-  test('street spawns across depth layers with elevation and shorter warning deadlines', () => {
-    const g = new Game({version:1,unlocked:2,best:0}); g.start(2); g.spawn(); g.spawn();
-    const enemies = g.actors.filter(t=>t.kind==='enemy');
-    expect(enemies.map(t=>t.layer)).toEqual(['foreground','background','foreground']);
-    expect(enemies[1].y).toBeGreaterThan(3); // upper-floor window
-    expect(new Set(enemies.map(t=>t.z)).size).toBe(3);
-    expect(enemies.every(t=>t.deadline===4.6)).toBe(true);
-    g.start(1); expect(g.actors[0].layer).toBe('foreground'); expect(g.actors[0].slot).toBe(0);
-    for (let i=0;i<2;i++) g.spawn();
-    expect(g.actors.filter(t=>t.kind==='enemy').map(t=>t.layer)).toEqual(['foreground','midground','background']);
+  test('the bar is level 1 (open from the start); the merged street is level 2 and spawns across depth layers on both halves', () => {
+    const fresh = new Game(); expect(fresh.start(1)).toBe(true); expect(fresh.layout.look).toBe('bar'); expect(fresh.actors.some(t => t.kind === 'hat')).toBe(true);
+    expect(fresh.actors[0].layer).toBe('foreground'); expect(fresh.actors[0].slot).toBe(0); expect(fresh.start(2)).toBe(false);
+    const g = new Game({version:2,unlocked:2,best:0}); expect(g.start(2)).toBe(true); expect(g.layout.look).toBe('street');
+    expect(g.layout.goal).toBeGreaterThan(20); expect(g.layout.pan).toBeGreaterThan(6); expect(g.actors.filter(t=>t.kind==='dog').length).toBe(2);
+    for (let i = 0; i < 8; i++) { g.spawn(); for (const t of g.actors) if (t.kind === 'enemy' && g.actors.filter(e => e.kind === 'enemy').length >= 5) { g.actors = g.actors.filter(e => e !== t); break; } }
+    const slots = g.layout.slots, used = [...new Set(g.layout.order.slice(0, 9))].map(i => slots[i]);
+    expect(new Set(used.map(s => s.layer))).toEqual(new Set(['foreground', 'midground', 'background']));
+    expect(used.some(s => s.x < -6)).toBe(true); expect(used.some(s => s.x > 6)).toBe(true); // yard half and alley half
+    expect(g.actors.filter(t => t.kind === 'enemy').every(t => t.deadline === 5.4)).toBe(true);
+    // Never more than five bullies out at once on the wide street.
+    const h = new Game({version:2,unlocked:2,best:0}); h.start(2); for (let i = 0; i < 12; i++) h.spawn();
+    expect(h.actors.filter(t => t.kind === 'enemy').length).toBe(5);
   });
   test('fresh run and locked second level', () => {
     const g = new Game(); expect(g.start(2)).toBe(false); expect(g.start(1)).toBe(true);
@@ -31,8 +34,8 @@ describe('deterministic arcade rules', () => {
     g.stamina=100;g.act('punch',dog.id);g.stamina=100;g.act('punch',dog.id);expect(g.score).toBe(0);
   });
   test('grab prop then throw kills an enemy with premium score', () => {
-    const g = new Game();g.start(1);const prop=g.actors.find(t=>t.kind==='bottle')!;const enemy=g.actors.find(t=>t.kind==='enemy')!;
-    expect(g.act('grab',prop.id)).toBe('grab');expect(g.held).toBe('bottle');expect(g.stamina).toBe(88);
+    const g = new Game();g.start(1);const prop=g.actors.find(t=>t.kind==='mug'||t.kind==='whiskey')!;const enemy=g.actors.find(t=>t.kind==='enemy')!;
+    expect(g.act('grab',prop.id)).toBe('grab');expect(g.held).toBe(prop.kind);expect(g.stamina).toBe(88);
     expect(g.act('grab',enemy.id)).toBe('throw');expect(g.held).toBeNull();expect(g.score).toBe(180);expect(g.stamina).toBe(70);expect(g.defeated).toBe(1);
   });
   test('pause freezes time, HP, stamina and actions', () => {
@@ -47,17 +50,34 @@ describe('deterministic arcade rules', () => {
   });
   test('win unlocks second level and persists versioned best; retry resets all health', () => {
     let saved: Progress | undefined;const g=new Game(undefined,p=>{saved=p;});g.start(1);
-    for(let i=0;i<9;i++){if(!g.actors.some(t=>t.kind==='enemy'))g.spawn();g.stamina=100;g.act('punch',g.actors.find(t=>t.kind==='enemy')!.id);}
-    expect(g.mode).toBe('result');expect(g.won).toBe(true);expect(g.score).toBeGreaterThan(900);expect(saved?.unlocked).toBe(2);expect(saved?.version).toBe(1);
+    for(let i=0;i<g.goal;i++){if(!g.actors.some(t=>t.kind==='enemy'))g.spawn();g.stamina=100;g.act('punch',g.actors.find(t=>t.kind==='enemy')!.id);}
+    expect(g.mode).toBe('result');expect(g.won).toBe(true);expect(g.score).toBeGreaterThan(900);expect(saved?.unlocked).toBe(2);expect(saved?.version).toBe(2);
     expect(g.start(2)).toBe(true);g.hp=1;g.held='barrel';g.combo=8;g.start(2);expect(g.hp).toBe(5);expect(g.stamina).toBe(100);expect(g.held).toBeNull();expect(g.combo).toBe(0);expect(g.score).toBe(0);
   });
   test('five missed attack deadlines lose; result blocks actions',()=>{
     const g=new Game();g.start(1);for(let i=0;i<5;i++)g.tick(7);expect(g.mode).toBe('result');expect(g.won).toBe(false);expect(g.hp).toBe(0);expect(g.act('punch')).toBe('blocked');
   });
   test('malformed, wrong-version and invalid progress are safe',()=>{
-    for(const raw of [null,'oops','null','{}','{"version":2,"unlocked":2,"best":99}','{"version":1,"unlocked":7,"best":1}','{"version":1,"unlocked":2,"best":-1}'])expect(readProgress(raw)).toEqual({version:1,unlocked:1,best:0});
-    expect(readProgress('{"version":1,"unlocked":2,"best":1024}')).toEqual({version:1,unlocked:2,best:1024});
+    for(const raw of [null,'oops','null','{}','{"version":3,"unlocked":2,"best":99}','{"version":2,"unlocked":3,"best":1}','{"version":2,"unlocked":2,"best":-1}','{"version":1,"unlocked":7,"best":1}'])expect(readProgress(raw)).toEqual({version:2,unlocked:1,best:0});
+    expect(readProgress('{"version":2,"unlocked":2,"best":1024}')).toEqual({version:2,unlocked:2,best:1024});
   });
+  test('v1 saves migrate to the new order: yard-only stays at the bar, anything past the yard opens the street; best survives',()=>{
+    expect(readProgress('{"version":1,"unlocked":1,"best":40}')).toEqual({version:2,unlocked:1,best:40});
+    expect(readProgress('{"version":1,"unlocked":2,"best":512}')).toEqual({version:2,unlocked:2,best:512});
+    expect(readProgress('{"version":1,"unlocked":3,"best":900}')).toEqual({version:2,unlocked:2,best:900});
+    const store: Record<string,string> = {'long-arms.progress.v1':'{"version":1,"unlocked":3,"best":77}'};
+    expect(loadProgress(k=>store[k]??null)).toEqual({version:2,unlocked:2,best:77});
+    store[PROGRESS_KEY]='{"version":2,"unlocked":1,"best":5}'; expect(loadProgress(k=>store[k]??null)).toEqual({version:2,unlocked:1,best:5}); // v2 wins once written
+    expect(PROGRESS_KEY).toBe('long-arms.progress.v2');
+    const g=new Game(loadProgress(k=>k===LEGACY_PROGRESS_KEY?'{"version":1,"unlocked":3,"best":1}':null)); expect(g.start(2)).toBe(true);
+  });
+  test('win → the next level is the primary result button; retry stays secondary; the last level goes back to the menu',()=>{
+    const g=new Game(); g.start(1); g.finish(true);
+    const a=resultActions(g); expect(a[0]).toMatchObject({id:'next',primary:true}); expect(a.filter(x=>x.primary)).toHaveLength(1); expect(a.some(x=>x.id==='retry'&&!x.primary)).toBe(true);
+    g.start(2); g.finish(true); const last=resultActions(g); expect(last[0]).toMatchObject({id:'menu',primary:true}); expect(last.some(x=>x.id==='retry')).toBe(true); expect(last.some(x=>x.id==='next')).toBe(false);
+    g.start(1); g.finish(false); expect(resultActions(g)[0]).toMatchObject({id:'retry',primary:true});
+  });
+
 });
 
 import { ULT } from '../src/game';
@@ -66,18 +86,11 @@ import { resolveShot } from '../src/aim';
 import { Stream, STREAM } from '../src/ult';
 
 describe('level 3: the secret bar', () => {
-  const counter = LEVELS[3].covers.find(c => c.id === 'counter')!;
+  const counter = LEVELS[1].covers.find(c => c.id === 'counter')!;
   const onTop = { x: .3, y: counter.max.y, z: (counter.min.z + counter.max.z) / 2 };
-  const ready = () => { const g = new Game({ version: 1, unlocked: 3, best: 0 }); g.start(3); return g; };
+  const ready = () => { const g = new Game(); g.start(1); return g; };
   const grabHat = (g: Game) => { const hat = g.actors.find(t => t.kind === 'hat')!; expect(g.act('grab', hat.id)).toBe('grab'); expect(g.held).toBe('hat'); };
 
-  test('unlocks after level 2, is selectable once unlocked and survives storage', () => {
-    const g = new Game({ version: 1, unlocked: 2, best: 0 }); expect(g.start(3)).toBe(false);
-    g.start(2); g.finish(true); expect(g.progress.unlocked).toBe(3); expect(g.start(3)).toBe(true);
-    expect(readProgress(JSON.stringify({ version: 1, unlocked: 3, best: 10 })).unlocked).toBe(3);
-    expect(readProgress(JSON.stringify({ version: 1, unlocked: 4, best: 10 })).unlocked).toBe(1);
-    const w = new Game({ version: 1, unlocked: 3, best: 0 }); w.start(1); w.finish(true); expect(w.progress.unlocked).toBe(3); // never re-locks
-  });
   test('bar patrons peek from their cover; mug / whiskey are the throwables; the hat sits on its stool', () => {
     const g = ready(); for (let i = 0; i < 4; i++) g.spawn();
     expect(new Set(g.actors.filter(t => t.kind === 'enemy').map(t => t.skin))).toEqual(new Set(['walrus', 'weasel', 'bulldog']));
@@ -99,12 +112,12 @@ describe('level 3: the secret bar', () => {
     expect(g.resolve('grab', { kind: 'cover', id: 'counter', point: onTop })).toBe('ult');
     expect(g.ult.phase).toBe('intro'); expect(g.events.some(e => e.type === 'ult')).toBe(true);
     expect(g.actors.some(t => t.kind === 'hat')).toBe(false); // the hat stays on the counter
-    expect(onLanding(1, 'counter', onTop)).toBe(false);
+    expect(onLanding(2, 'counter', onTop)).toBe(false);
   });
   test('a real ray from the camera onto the counter top resolves to the landing zone', () => {
     const cam = rig(1440, 960).position, g = ready();
-    const shot = resolveShot(cam, { x: onTop.x - cam.x, y: onTop.y - .05 - cam.y, z: counter.max.z - cam.z }, hits(3, []));
-    expect(shot.id).toBe('counter'); expect(onLanding(3, shot.id, shot.point)).toBe(true);
+    const shot = resolveShot(cam, { x: onTop.x - cam.x, y: onTop.y - .05 - cam.y, z: counter.max.z - cam.z }, hits(1, []));
+    expect(shot.id).toBe('counter'); expect(onLanding(1, shot.id, shot.point)).toBe(true);
     expect(g).toBeTruthy();
   });
   test('ult: frozen intro, then a 6 s pour that drains the meter; no stamina spent, no attacks land', () => {
@@ -131,7 +144,7 @@ describe('level 3: the secret bar', () => {
     g.tick(ULT.intro + .01); for (let i = 0; i < 70; i++) g.tick(.1);
     expect(g.ult.phase).toBe('done'); g.placeHat(); expect(g.actors.some(t => t.kind === 'hat')).toBe(false);
     expect(g.soak({ kind: 'enemy', id: g.actors.find(t => t.kind === 'enemy')?.id }, 1)).toBe(null);
-    g.start(3); expect(g.ult.phase).toBe('none'); expect(g.actors.some(t => t.kind === 'hat')).toBe(true);
+    g.start(1); expect(g.ult.phase).toBe('none'); expect(g.actors.some(t => t.kind === 'hat')).toBe(true);
   });
   test('ult stream: rises from below the bottom centre, arcs above the chord and follows the aim with lag', () => {
     const s = new Stream(), aim = { x: .8, y: .35 };
