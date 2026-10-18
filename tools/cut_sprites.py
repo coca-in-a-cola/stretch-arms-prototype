@@ -4,13 +4,14 @@ Sources live in art/ (never shipped); the runtime cuts come from the colour reco
 which share the B/W sheets' layout, so the crop boxes are the same.
 
 Runs the pixel work inside headless Chromium's canvas (no PIL in the project venv):
-  PLAYWRIGHT_BROWSERS_PATH=.playwright-browsers .venv-browser/bin/python tools/cut_sprites.py
+  PLAYWRIGHT_BROWSERS_PATH=.playwright-browsers .venv-browser/bin/python tools/cut_sprites.py [only.png ...]
 Per figure: crop a region of the sheet, flood-fill the paper from the crop edges, also clear large
 enclosed paper holes (gaps between arm and body), keep only the main figure (drops neighbours' fragments
 and small doodles like painted dizzy stars), then de-halo the anti-aliased fringe: edge alpha comes from
 darkness and the colour is un-blended from white so no light rim remains. Fitted feet-down into 512x640.
 """
 import base64
+import sys
 import json
 from pathlib import Path
 from playwright.sync_api import sync_playwright
@@ -41,6 +42,22 @@ JOBS = [
     ('gen_bar_props.jpg', 'gen_hat.png', {'crop': [40, 55, 425, 340], 'tint': [124, 58, 230]}),
     ('gen_bar_props.jpg', 'gen_mug.png', {'crop': [452, 40, 692, 360], 'hole': 400}),
     ('gen_bar_props.jpg', 'gen_whiskey.png', {'crop': [792, 30, 922, 365]}),
+    # SA-V4-16: the rest of the bar sheet (3x3; the hat is the hero item above) and the street props sheet (3x3).
+    ('gen_bar_props.jpg', 'gen_stool.png', {'crop': [85, 385, 315, 695]}),
+    ('gen_bar_props.jpg', 'gen_spittoon.png', {'crop': [410, 420, 660, 650], 'hole': 400}),
+    ('gen_bar_props.jpg', 'gen_shaker.png', {'crop': [780, 390, 935, 665]}),
+    ('gen_bar_props.jpg', 'gen_eggs.png', {'crop': [100, 720, 295, 990], 'hole': 400}),
+    ('gen_bar_props.jpg', 'gen_plunger.png', {'crop': [450, 690, 605, 990]}),
+    ('gen_bar_props.jpg', 'gen_cuckoo.png', {'crop': [735, 680, 980, 1020], 'hole': 400}),
+    ('gen_street_props2.jpg', 'gen_hydrant.png', {'crop': [65, 20, 295, 345]}),
+    ('gen_street_props2.jpg', 'gen_tire.png', {'crop': [385, 35, 640, 340], 'hole': 400}),
+    ('gen_street_props2.jpg', 'gen_melon.png', {'crop': [710, 35, 980, 330]}),
+    ('gen_street_props2.jpg', 'gen_fish.png', {'crop': [20, 395, 365, 640]}),
+    ('gen_street_props2.jpg', 'gen_anvil.png', {'crop': [335, 390, 685, 645]}),
+    ('gen_street_props2.jpg', 'gen_chicken.png', {'crop': [760, 335, 925, 710]}),
+    ('gen_street_props2.jpg', 'gen_bowling.png', {'crop': [55, 715, 315, 975]}),
+    ('gen_street_props2.jpg', 'gen_flowerpot.png', {'crop': [405, 660, 615, 990]}),
+    ('gen_street_props2.jpg', 'gen_pie.png', {'crop': [685, 715, 1000, 955], 'hole': 6000}),  # keep the whipped cream
     # Backdrop: the B/W bar painting, kept opaque and forced to pure grey (world rule), PNG so no .jpg ships.
     ('gen_bar_bg.jpg', 'gen_bar_backdrop.png', {'plain': True}),
 ]
@@ -111,7 +128,10 @@ JS = '''async ([src, o]) => {
 with sync_playwright() as p:
     browser = p.chromium.launch(headless=True, args=['--no-sandbox'])
     page = browser.new_page()
+    only = set(sys.argv[1:])  # optional: re-cut just these outputs
     for src, dst, opts in JOBS:
+        if only and dst not in only:
+            continue
         source = ART / src
         if not source.exists():
             print(dst, 'SKIPPED: missing', src)

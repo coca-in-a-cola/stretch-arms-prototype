@@ -361,6 +361,9 @@ function syncActors(time: number) {
     if (how && motion) leaving.push({ view, age: 0, spin: view.facing, how }); else disposeView(view);
   }
   for (const t of visible) {
+    // Ids restart with every level: a view left over from another actor with the same id is rebuilt, never reused.
+    const old = views.get(t.id), skin = t.kind === 'enemy' && t.skin && t.skin !== 'cat' ? t.skin : undefined;
+    if (old && (old.kind !== t.kind || old.skin !== skin)) { views.delete(t.id); disposeView(old); }
     const view = views.get(t.id) ?? makeView(t); const c = BODY[t.kind];
     const p = pose(game.level, t, motion);
     view.group.position.set(p.x, p.y, p.z);

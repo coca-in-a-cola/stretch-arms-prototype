@@ -79,7 +79,7 @@ describe('colour logic: grey world, colour means interactive', () => {
   const backdrops = ['gen_bar_backdrop.png'];
   const sprites = readdirSync(join(root, 'public', 'assets')).filter(f => f.endsWith('.png') && !backdrops.includes(f));
   test('every runtime sprite is present', () => {
-    expect(sprites.sort()).toEqual(['bully.png', 'dog_halo.png', 'gen_barrel.png', 'gen_bottle.png', 'gen_bulldog.png', 'gen_cat_hurt.png', 'gen_cat_ko.png', 'gen_cat_windup.png', 'gen_dog_sad.png', 'gen_dog_sit.png', 'gen_dog_walk.png', 'gen_hat.png', 'gen_mug.png', 'gen_walrus.png', 'gen_weasel.png', 'gen_whiskey.png']);
+    expect(sprites.sort()).toEqual(['bully.png', 'dog_halo.png', 'gen_anvil.png', 'gen_barrel.png', 'gen_bottle.png', 'gen_bowling.png', 'gen_bulldog.png', 'gen_cat_hurt.png', 'gen_cat_ko.png', 'gen_cat_windup.png', 'gen_chicken.png', 'gen_cuckoo.png', 'gen_dog_sad.png', 'gen_dog_sit.png', 'gen_dog_walk.png', 'gen_eggs.png', 'gen_fish.png', 'gen_flowerpot.png', 'gen_hat.png', 'gen_hydrant.png', 'gen_melon.png', 'gen_mug.png', 'gen_pie.png', 'gen_plunger.png', 'gen_shaker.png', 'gen_spittoon.png', 'gen_stool.png', 'gen_tire.png', 'gen_walrus.png', 'gen_weasel.png', 'gen_whiskey.png']);
   });
   for (const f of backdrops) test(`${f}: painted backdrop is pure grey world`, () => {
     const { px } = readPng(join(root, 'public', 'assets', f));
