@@ -361,11 +361,17 @@ const cloudTex = overlayTexture(g => {
   g.beginPath(); g.arc(90, 52, 30, Math.PI * .5, Math.PI * 1.6); g.arc(130, 38, 34, Math.PI * 1.05, Math.PI * 1.95); g.arc(172, 54, 28, Math.PI * 1.4, Math.PI * .5); g.closePath(); g.fill(); g.stroke();
   g.strokeStyle = '#3d7fd6'; g.lineWidth = 6; for (const x of [96, 124, 152, 176]) { g.beginPath(); g.moveTo(x, 92); g.lineTo(x - 6, 116); g.stroke(); }
 });
-/** Friends wear a little pink heart overhead: the same 'do not touch' promise as the dog's halo. */
-const heartTex = overlayTexture(g => {
-  g.beginPath(); g.moveTo(64, 112); g.bezierCurveTo(8, 72, 14, 18, 64, 40); g.bezierCurveTo(114, 18, 120, 72, 64, 112); g.closePath();
-  g.fillStyle = '#ff6fa8'; g.fill(); g.lineWidth = 9; g.strokeStyle = '#1c1d1a'; g.stroke(); g.fillStyle = '#ffffff'; g.beginPath(); g.ellipse(44, 52, 9, 6, -.6, 0, Math.PI * 2); g.fill();
-}, 128, 128);
+const protectedBadgeTex = overlayTexture(g => {
+  const w = 256, h = 84, r = 24;
+  g.beginPath(); g.roundRect(8, 8, w - 16, h - 16, r);
+  g.fillStyle = '#225530'; g.fill();
+  g.strokeStyle = '#0f2414'; g.lineWidth = 7; g.stroke();
+  g.beginPath(); g.roundRect(14, 14, w - 28, h - 28, r - 6);
+  g.strokeStyle = '#a3e8b0'; g.lineWidth = 3; g.stroke();
+  g.font = '900 32px Arial, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
+  g.strokeStyle = '#0f2414'; g.lineWidth = 5; g.strokeText('НЕ ТРОГАТЬ', w / 2, h / 2 + 1);
+  g.fillStyle = '#f0fff4'; g.fillText('НЕ ТРОГАТЬ', w / 2, h / 2 + 1);
+}, 256, 84);
 const zzzTex = overlayTexture(g => { g.font = '900 54px Georgia'; g.lineWidth = 7; g.strokeStyle = '#1c1d1a'; g.fillStyle = '#9fd3ff'; [[30, 110, 1], [100, 72, .8], [170, 40, .6]].forEach(([x, y, k]) => { g.save(); g.translate(x, y); g.scale(k, k); g.strokeText('Z', 0, 0); g.fillText('Z', 0, 0); g.restore(); }); });
 /** A soft shaft of heavenly light for the dog's ascension. */
 const beamTex = overlayTexture(g => { const gr = g.createLinearGradient(0, 0, 0, 512); gr.addColorStop(0, 'rgba(255,240,170,0)'); gr.addColorStop(.25, 'rgba(255,240,170,.55)'); gr.addColorStop(1, 'rgba(255,240,170,.1)'); g.fillStyle = gr; g.beginPath(); g.moveTo(90, 0); g.lineTo(166, 0); g.lineTo(240, 512); g.lineTo(16, 512); g.closePath(); g.fill(); }, 256, 512);
@@ -376,7 +382,7 @@ function overlay(map: THREE.Texture, w: number, h: number, order = 2) {
 
 interface ActorView {
   kind: Kind; group: THREE.Group; body: THREE.Group; sprite: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial>;
-  flash: number; sad: number; facing: number; antic?: boolean; knock?: number; who?: FriendKind | ThugKind; heart?: THREE.Sprite; zzz?: THREE.Sprite; beam?: THREE.Sprite; hole?: THREE.Mesh; ascending?: boolean; /** Health bar: the trailing 'just lost' chunk, eased down to the real value. */ ghost?: number; frame?: string; wound?: boolean; skin?: Exclude<Skin, 'cat'>; wet?: number; yuck?: boolean; warning?: THREE.Sprite; stars?: THREE.Sprite; halo?: THREE.Sprite; cloud?: THREE.Sprite;
+  flash: number; sad: number; facing: number; antic?: boolean; knock?: number; who?: FriendKind | ThugKind; badge?: THREE.Sprite; zzz?: THREE.Sprite; beam?: THREE.Sprite; hole?: THREE.Mesh; ascending?: boolean; /** Health bar: the trailing 'just lost' chunk, eased down to the real value. */ ghost?: number; frame?: string; wound?: boolean; skin?: Exclude<Skin, 'cat'>; wet?: number; yuck?: boolean; warning?: THREE.Sprite; stars?: THREE.Sprite; halo?: THREE.Sprite; cloud?: THREE.Sprite;
 }
 const actorGroup = new THREE.Group(); scene.add(actorGroup);
 const views = new Map<number, ActorView>();
@@ -398,7 +404,7 @@ function makeView(t: Actor): ActorView {
   // Enemies square up toward the middle of the yard; the dog turns with its stroll.
   const view: ActorView = { kind: t.kind, group, body, sprite, flash: 0, sad: 0, skin, who: t.who, facing: t.kind === 'enemy' && t.x < 0 ? -1 : t.kind === 'thug' ? -(t.side ?? 1) : 1 };
   if (t.kind === 'friend') {
-    view.heart = overlay(heartTex, .26, .26); body.add(view.heart);
+    view.badge = overlay(protectedBadgeTex, .72, .24); body.add(view.badge);
     if (t.who === 'drunk') { view.zzz = overlay(zzzTex, .7, .35); view.zzz.position.set(.45, c.h * .95, 0); body.add(view.zzz); }
   }
   if (t.kind === 'thug') {
@@ -412,6 +418,7 @@ function makeView(t: Actor): ActorView {
   }
   if (t.kind === 'dog') {
     view.halo = overlay(haloTex, .62, .31); body.add(view.halo);
+    view.badge = overlay(protectedBadgeTex, .64, .21); body.add(view.badge);
     view.cloud = overlay(cloudTex, .8, .4); view.cloud.visible = false; body.add(view.cloud);
     view.beam = overlay(beamTex, 1.6, 6, 1); view.beam.visible = false; group.add(view.beam);
   }
@@ -444,6 +451,7 @@ function syncActors(time: number) {
     const a = motion ? (t.id < 0 ? time : t.age) + t.id * .7 : 0;
     let sx = 1, sy = 1, rot = 0, lift = 0; const tint = new THREE.Color(1, 1, 1);
     if (t.kind === 'enemy') {
+      tint.setRGB(1.0, 0.88, 0.88);
       const isForeground = t.layer === 'foreground' || t.layer === undefined;
       const left = t.deadline - t.age, wind = (motion && isForeground) ? THREE.MathUtils.clamp(1 - left / WINDUP, 0, 1) : 0;
       const bounce = Math.abs(Math.sin(a * 4.2));
@@ -454,7 +462,7 @@ function syncActors(time: number) {
         // Wind-up: the drawn wrench-overhead pose, rocking back, puffing up, flushing red and trembling.
         const tremble = Math.sin(time * 48) * .02 * wind;
         rot = -view.facing * .08 * wind + tremble; sx *= 1 + .08 * wind; sy *= 1 + .1 * wind; lift = 0;
-        const pulse = .5 + .5 * Math.sin(time * 18); tint.setRGB(1, 1 - .45 * wind * pulse, 1 - .5 * wind * pulse);
+        const pulse = .5 + .5 * Math.sin(time * 18); tint.setRGB(1, (1 - .45 * wind * pulse) * 0.88, (1 - .5 * wind * pulse) * 0.88);
       }
       if (view.warning) {
         const shown = t.id > 0 && isForeground && left < WINDUP * 1.6;
@@ -478,17 +486,22 @@ function syncActors(time: number) {
         rot = quake; sx *= 1 + .08 * wet; sy *= 1 - .14 * wet; lift = 0; tint.setRGB(1 - .45 * wet, 1, 1 - .55 * wet);
       }
     } else if (t.kind === 'dog') {
+      tint.setRGB(0.92, 1.0, 0.94);
       const walk = dogWalk(motion ? (t.id < 0 ? time : t.age) : 0, motion); view.facing = -walk.facing;
       if (walk.walking) { const hop = Math.abs(Math.sin(a * 11)); lift = hop * .09; sy = 1 + hop * .04; rot = Math.sin(a * 11) * .06; }
       else { const breathe = Math.sin(a * 2.6); sy = 1 + breathe * .025; sx = 1 - breathe * .012; rot = Math.sin(a * .9) * .03; }
       view.sad = Math.max(0, view.sad - 1 / 60);
       const sad = Math.min(1, view.sad);
       showFrame(view, sad > 0 ? frames.sad : walk.walking ? frames.walk : textures.dog);
-      if (sad > 0) { sy *= 1 - .12 * sad; sx *= 1 + .05 * sad; rot = Math.sin(time * 20) * .03 * sad; lift = 0; tint.setRGB(1 - .25 * sad, 1 - .15 * sad, 1); }
+      if (sad > 0) { sy *= 1 - .12 * sad; sx *= 1 + .05 * sad; rot = Math.sin(time * 20) * .03 * sad; lift = 0; tint.setRGB(0.85, 0.95, 0.98); }
       const hx = .1 * view.facing;
       if (view.halo) {
         view.halo.position.set(hx, c.h * 1.0 + (motion ? Math.sin(time * 3 + t.id) * .04 : 0) - sad * .12, 0);
         view.halo.material.rotation = sad * .45 * Math.sin(time * 6); view.halo.material.color.setRGB(1, 1, 1 - sad * .5);
+      }
+      if (view.badge) {
+        view.badge.visible = true;
+        view.badge.position.set(hx, c.h * 1.0 + .34 + (motion ? Math.sin(time * 3 + t.id) * .02 : 0) - sad * .12, .02);
       }
       if (view.cloud) { view.cloud.visible = sad > 0; view.cloud.position.set(hx, c.h * 1.25 + Math.sin(time * 4) * .03, 0); }
       // Ascension: a shaft of light, a harp glissando, the halo glowing — then a gentle float back down.
@@ -498,21 +511,26 @@ function syncActors(time: number) {
       if (view.beam) { view.beam.visible = up > 0; view.beam.position.set(0, 3 - p.y + up * .2, -.05); view.beam.material.opacity = Math.min(1, up / .5); }
       if (up > 0) { rot = Math.sin(time * 2) * .05; lift += Math.sin(time * 3) * .03; }
     } else if (t.kind === 'friend') {
+      tint.setRGB(0.92, 1.0, 0.94);
       const plan = LEVELS[game.level].friends[t.plan ?? 0], fp = plan ? friendPose(plan, t.age, motion) : null, ff = friendFrames[t.who as FriendKind];
       const mad = t.mad ?? 0;
       showFrame(view, mad > 0 ? (mad > FRIEND_MAD * .5 ? ff.mad : ff.fury) : fp?.lantern && ff.lantern ? ff.lantern : ff.idle);
       if (fp) view.facing = fp.facing; // every friend is drawn facing right
-      if (mad > 0) { rot = Math.sin(time * 40) * .04; sx = 1.06; sy = .96; tint.setRGB(1, .82, .8); }
+      if (mad > 0) { rot = Math.sin(time * 40) * .04; sx = 1.06; sy = .96; tint.setRGB(0.96, 0.92, 0.86); }
       else if (fp?.walking) { const hop = Math.abs(Math.sin(a * 7)); lift = hop * .05; rot = Math.sin(a * 7) * .05; }
       else if (t.who === 'drunk') rot = Math.sin(a * .9) * .07; // swaying in his sleep
       else { const breathe = Math.sin(a * 2.6); sy = 1 + breathe * .02; }
-      if (view.heart) { view.heart.visible = (fp?.rise ?? 1) > .6 && mad <= 0; view.heart.position.set(0, c.h * c.inset[3] + .2 + (motion ? Math.sin(time * 3 + t.id) * .03 : 0), .02); }
+      if (view.badge) {
+        view.badge.visible = (fp?.rise ?? 1) > .5;
+        view.badge.position.set(0, c.h * c.inset[3] + .22 + (motion ? Math.sin(time * 3 + t.id) * .02 : 0), .02);
+      }
       if (view.zzz) { view.zzz.visible = mad <= 0; view.zzz.position.y = c.h * .95 + (motion ? (time * .25 % .3) : 0); }
     } else if (t.kind === 'thug') {
+      tint.setRGB(1.0, 0.88, 0.88);
       const tf = thugFrames[t.who as ThugKind], striking = t.age >= THUG.attack, tele = THREE.MathUtils.clamp((t.age - 1.2) / (THUG.attack - 1.2), 0, 1);
       showFrame(view, striking ? tf.attack : tf.appear);
       const hop = Math.abs(Math.sin(a * 9)); lift = hop * .04; rot = Math.sin(a * 9) * .04;
-      if (tele > 0 && motion) { rot += Math.sin(time * 50) * .03 * tele; tint.setRGB(1, 1 - .4 * tele * (.5 + .5 * Math.sin(time * 18)), 1 - .45 * tele); }
+      if (tele > 0 && motion) { rot += Math.sin(time * 50) * .03 * tele; tint.setRGB(1, (1 - .4 * tele * (.5 + .5 * Math.sin(time * 18))) * 0.88, (1 - .45 * tele) * 0.88); }
       if (striking) { sx = 1.15; sy = 1.1; }
       if (view.warning) { view.warning.visible = t.age > .9; view.warning.scale.setScalar(.34 + tele * .26); }
       if (view.hole) view.hole.position.y = -p.y + .03;
