@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { Game } from '../src/game';
 import { LEVELS, cameraFor, hittables, pose, bodyBox, dogAscent, ASCENT } from '../src/layout';
-import { FRIEND_PENALTY, MOLE, THUG, THUG_STEAL, molePhase, friendPose } from '../src/friends';
+import { FRIEND_PENALTY, MOLE, THUG, THUG_STEAL, molePhase, friendPose, PEACEFUL_MODELS, BULLY_MODELS, isPeacefulActor, isBullyActor } from '../src/friends';
 import { resolveShot } from '../src/aim';
 
 const street = () => { const g = new Game({ version: 2, unlocked: 2, best: 0 }); g.start(2); return g; };
@@ -149,5 +149,48 @@ describe('close-range thugs (street)', () => {
     gang.age = THUG.strike; g.tick(.01); expect(g.events.some(e => e.type === 'nuisance' && e.who === 'gang')).toBe(true);
     const hp = g.hp, kid = g.spawnThug()!; expect(kid.who).toBe('kid'); kid.age = THUG.strike; g.tick(.01); expect(g.hp).toBe(hp - 1);
     expect(THUG_STEAL).toBeGreaterThan(20);
+  });
+});
+
+describe('differentiation of peaceful NPCs and hostile bullies', () => {
+  test('peaceful NPCs and hostile bullies strictly belong to their classes', () => {
+    for (const model of PEACEFUL_MODELS) {
+      if (model === 'dog') {
+        expect(isPeacefulActor('dog')).toBe(true);
+        expect(isBullyActor('dog')).toBe(false);
+      } else {
+        expect(isPeacefulActor('friend', model)).toBe(true);
+        expect(isBullyActor('friend', model)).toBe(false);
+      }
+    }
+    for (const model of BULLY_MODELS) {
+      if (model === 'cat' || model === 'walrus' || model === 'bulldog') {
+        expect(isBullyActor('enemy', model)).toBe(true);
+        expect(isPeacefulActor('enemy', model)).toBe(false);
+      } else {
+        expect(isBullyActor('thug', model)).toBe(true);
+        expect(isPeacefulActor('thug', model)).toBe(false);
+      }
+    }
+  });
+
+  test('peaceful NPCs (dog, mole, kitten/cat, grandma, pigeon, drunk, bartender) have permanent protected status', () => {
+    const b = bar();
+    const peacefulInBar = b.actors.filter(a => isPeacefulActor(a.kind, (a as any).who));
+    expect(peacefulInBar.length).toBeGreaterThanOrEqual(4);
+    for (const npc of peacefulInBar) {
+      b.hp = 5;
+      b.spend('punch');
+      expect(b.resolve('punch', { kind: npc.kind as any, id: npc.id })).toBe('protected');
+    }
+
+    const s = street();
+    const peacefulInStreet = s.actors.filter(a => isPeacefulActor(a.kind, (a as any).who));
+    expect(peacefulInStreet.length).toBeGreaterThanOrEqual(3);
+    for (const npc of peacefulInStreet) {
+      s.hp = 5;
+      s.spend('punch');
+      expect(s.resolve('punch', { kind: npc.kind as any, id: npc.id })).toBe('protected');
+    }
   });
 });
