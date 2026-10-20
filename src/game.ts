@@ -53,7 +53,7 @@ export interface StrikeHit { kind: HitKind | 'whiff'; id?: number | string; poin
 export const ULT = { freeze: .5, intro: BET_CARDS[BET_CARDS.length - 1].at + BET_CARDS[BET_CARDS.length - 1].len, length: 6, soakRate: 1.9, dogCooldown: 1.5 } as const;
 export type UltPhase = 'none' | 'intro' | 'pour' | 'done';
 export const PROGRESS_KEY = 'long-arms.progress.v2', LEGACY_PROGRESS_KEY = 'long-arms.progress.v1';
-export const freshProgress = (): Progress => ({ version: 2, unlocked: 1, best: 0 });
+export const freshProgress = (): Progress => ({ version: 2, unlocked: 2, best: 0 });
 /**
  * v2 order: 1 = bar (open from the start), 2 = the wide street. v1 had 1 = yard, 2 = alley, 3 = bar; the yard and
  * alley were merged into the street, so any v1 save that got past the yard opens the street. Best score carries over.
@@ -112,7 +112,8 @@ export class Game {
   get layout() { return LEVELS[this.level]; }
   get goal() { return this.layout.goal; }
   start(level: number) {
-    if (level > this.progress.unlocked) return false;
+    // Showcase mode: both levels are available, including with older locked saves.
+    if (!Number.isInteger(level) || level < 1 || level > LAST_LEVEL) return false;
     this.level = level; this.hp = 5; this.stamina = 100; this.score = 0; this.combo = 0; this.elapsed = 0; this.held = null; this.actors = []; this.events = []; this.flights = []; this.riffs = 0; this.laundry = 5; this.won = false; this.defeated = 0; this.spawned = 0; this.spawnClock = 0; this.nextId = 1; this.thugClock = 0; this.thugs = 0; this.geysers = []; this.hazards = []; this.hazardClock = 0; this.hazardCount = 0; this.mode = 'play'; this.message = this.layout.look === 'bar' ? 'Бар «Длинные руки». Ведите себя прилично.' : 'Улица большая — крути камеру к краям!';
     this.ult = { phase: 'none', t: 0, meter: 0, hat: 0 }; this.dogSoak = 0; this.dogLeft = false; this.hatRest = null;
     for (const p of this.layout.props) this.actors.push({ id: this.nextId++, kind: p.kind, x: p.x, y: p.y, z: p.z, layer: layerAt(p.z), age: 0, deadline: Infinity });
@@ -526,6 +527,11 @@ export class Game {
   }
   get canUlt() { return this.ult.phase === 'none'; }
   get pouring() { return this.ult.phase === 'pour';
+  }
+  winNow() {
+    if (this.mode !== 'play') return;
+    this.defeated = this.goal;
+    this.finish(true);
   }
   finish(won: boolean) {
     this.won = won; this.mode = 'result'; this.held = null; this.briefing = null;

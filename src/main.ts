@@ -1092,6 +1092,7 @@ addEventListener('keyup', e => panKeys.delete(e.code));
 addEventListener('blur', () => panKeys.clear());
 canvas.addEventListener('contextmenu', e => e.preventDefault());
 addEventListener('keydown', e => {
+  if (game.mode === 'play' && (e.code === 'F8' || e.code === 'KeyW')) { e.preventDefault(); game.winNow(); renderUi(); }
   if (['ArrowLeft', 'ArrowRight', 'KeyA', 'KeyD'].includes(e.code)) { panKeys.add(e.code); if (canPan()) e.preventDefault(); }
   if (e.code === 'Escape' && !document.hidden) { if (game.briefing && game.mode === 'play') skipBriefing(); else { game.pause(); renderUi(); } }
   if ((e.code === 'Space' || e.code === 'KeyE') && !(e.target instanceof HTMLButtonElement)) { e.preventDefault(); if (!e.repeat) perform(e.code === 'Space' ? 'punch' : 'grab'); }
@@ -1120,8 +1121,7 @@ function renderUi() {
       button('close', renderUi);
     });
   } else if (mode === 'select') {
-    const locked = game.progress.unlocked < 2;
-    ui.innerHTML = chrome() + '<div class="shade"></div><section class="panel centerpanel"><div class="eyebrow">Выбери свой размах</div><h2>КУДА<br>СЕГОДНЯ?</h2><div class="levels"><button id="level1" class="primary level"><span>01 / БАР «ДЛИННЫЕ РУКИ»<br><small>' + LEVELS[1].goal + ' посетителей · ведите себя прилично</small></span><b>↗</b></button><button id="level2" class="secondary level" ' + (locked ? 'disabled' : '') + '><span>02 / УЛИЦА: ДВОР И ПЕРЕУЛОК<br><small>' + (locked ? 'Сначала наведи порядок в баре' : LEVELS[2].goal + ' задир · широкая панорама, крути камеру') + '</small></span><b>' + (locked ? '⊗' : '↗') + '</b></button></div><div class="buttons"><button id="back" class="secondary">← НАЗАД</button></div></section>';
+    ui.innerHTML = chrome() + '<div class="shade"></div><section class="panel centerpanel"><div class="eyebrow">Выбери свой размах</div><h2>КУДА<br>СЕГОДНЯ?</h2><div class="levels"><button id="level1" class="primary level"><span>01 / БАР «ДЛИННЫЕ РУКИ»<br><small>' + LEVELS[1].goal + ' посетителей · ведите себя прилично</small></span><b>↗</b></button><button id="level2" class="secondary level"><span>02 / УЛИЦА: ДВОР И ПЕРЕУЛОК<br><small>' + LEVELS[2].goal + ' задир · широкая панорама, крути камеру</small></span><b>↗</b></button></div><div class="buttons"><button id="back" class="secondary">← НАЗАД</button></div></section>';
     button('level1', () => startLevel(1));
     button('level2', () => startLevel(2));
     button('back', () => { game.mode = 'menu'; renderUi(); });
@@ -1132,10 +1132,11 @@ function renderUi() {
     button('pause', () => { game.pause(); renderUi(); });
     if (mode === 'pause' || mode === 'result') {
       const result = mode === 'result', won = result && game.won;
-      const actions = result ? resultActions(game) : [{ id: 'resume', label: 'ПРОДОЛЖИТЬ →', primary: true }, { id: 'select', label: 'ВЫБОР УРОВНЯ', primary: false }];
+      const actions = result ? resultActions(game) : [{ id: 'resume', label: 'ПРОДОЛЖИТЬ →', primary: true }, { id: 'autowin', label: 'АВТО-ПОБЕДА ⚡', primary: false }, { id: 'select', label: 'ВЫБОР УРОВНЯ', primary: false }];
       const after = !won ? 'Ещё попытка — все сердца снова с тобой.' : game.level < LAST_LEVEL ? 'Открыта улица: двор и переулок на одной широкой панораме.' : 'Улица чиста. Бар открыт до утра.';
       ui.innerHTML += '<div class="shade"></div><section class="panel centerpanel"><span class="note">' + (result ? (won ? 'ПОРЯДОК НАВЕДЁН' : 'БЫВАЕТ И ТАК') : 'РУКИ НА ПЕРЕРЫВЕ') + '</span><h2>' + (result ? (won ? 'КРАСИВО<br>РАЗОБРАЛСЯ!' : 'НЕ ТОТ<br>РАЗМАХ.') : 'ВЫДОХНИ.<br>ЗАДИРЫ ПОДОЖДУТ.') + '</h2><p>' + (result ? 'Счёт: <b>' + game.score + '</b> · Рекорд: ' + game.progress.best + '<br>' + after : 'Время остановилось. Ни один задира не ударит исподтишка.') + '</p><div class="buttons">' + actions.map(a => `<button id="${a.id}" class="${a.primary ? 'primary' : 'secondary'}">${a.label}</button>`).join('') + '</div></section>';
       button('resume', () => { game.pause(); renderUi(); });
+      button('autowin', () => { game.pause(); game.winNow(); renderUi(); });
       button('next', () => startLevel(game.level + 1));
       button('retry', () => startLevel(game.level));
       button('select', () => { game.mode = 'select'; renderUi(); });

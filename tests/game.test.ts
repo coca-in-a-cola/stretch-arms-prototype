@@ -6,7 +6,7 @@ import { LEVELS } from '../src/layout';
 describe('deterministic arcade rules', () => {
   test('the bar is level 1 (open from the start); the merged street is level 2 and spawns across depth layers on both halves', () => {
     const fresh = new Game(); expect(fresh.start(1)).toBe(true); expect(fresh.layout.look).toBe('bar'); expect(fresh.actors.some(t => t.kind === 'hat')).toBe(true);
-    const first = fresh.actors.find(t => t.kind === 'enemy')!; expect(first.layer).toBe('foreground'); expect(first.slot).toBe(0); expect(fresh.start(2)).toBe(false);
+    const first = fresh.actors.find(t => t.kind === 'enemy')!; expect(first.layer).toBe('foreground'); expect(first.slot).toBe(0); expect(fresh.start(2)).toBe(true);
     const g = new Game({version:2,unlocked:2,best:0}); expect(g.start(2)).toBe(true); expect(g.layout.look).toBe('street');
     expect(g.layout.goal).toBeGreaterThan(20); expect(g.layout.pan).toBeGreaterThan(6); expect(g.actors.filter(t=>t.kind==='dog').length).toBe(2);
     for (let i = 0; i < 8; i++) { g.spawn(); for (const t of g.actors) if (t.kind === 'enemy' && g.actors.filter(e => e.kind === 'enemy').length >= 5) { g.actors = g.actors.filter(e => e !== t); break; } }
@@ -18,9 +18,39 @@ describe('deterministic arcade rules', () => {
     const h = new Game({version:2,unlocked:2,best:0}); h.start(2); for (let i = 0; i < 12; i++) h.spawn();
     expect(h.actors.filter(t => t.kind === 'enemy').length).toBe(5);
   });
-  test('fresh run and locked second level', () => {
-    const g = new Game(); expect(g.start(2)).toBe(false); expect(g.start(1)).toBe(true);
+  test('fresh demo run opens both levels without a prior victory', () => {
+    const g = new Game(); expect(g.progress.unlocked).toBe(2); expect(g.start(2)).toBe(true); expect(g.start(1)).toBe(true);
     expect(g.hp).toBe(5); expect(g.stamina).toBe(100); expect(g.actors.filter(t => t.kind === 'enemy')).toHaveLength(1);
+  });
+  test('demo level selection also works with an older locked save and rejects invalid levels', () => {
+    const g = new Game({ version: 2, unlocked: 1, best: 40 });
+    for (const level of [1, 2]) expect(g.start(level)).toBe(true);
+    const before = JSON.stringify(g);
+    for (const level of [0, -1, 3, 1.5, NaN]) expect(g.start(level)).toBe(false);
+    expect(JSON.stringify(g)).toBe(before);
+  });
+  test('winNow completes either demo level and persists the normal victory result exactly once', () => {
+    for (const level of [1, 2]) {
+      const saved: Progress[] = [];
+      const g = new Game(undefined, p => saved.push(p));
+      g.start(level); g.score = 123; g.held = 'barrel';
+      g.winNow();
+      expect(g.mode).toBe('result'); expect(g.won).toBe(true);
+      expect(g.defeated).toBe(g.goal); expect(g.held).toBeNull();
+      expect(g.score).toBe(623);
+      expect(saved).toEqual([{ version: 2, unlocked: 2, best: 623 }]);
+      const before = JSON.stringify(g); g.winNow();
+      expect(JSON.stringify(g)).toBe(before); expect(saved).toHaveLength(1);
+    }
+  });
+  test('winNow ignores non-playing modes; the pause-menu flow resumes before winning', () => {
+    const g = new Game();
+    for (const mode of ['menu', 'select', 'pause', 'result'] as const) {
+      g.mode = mode; const before = JSON.stringify(g); g.winNow();
+      expect(JSON.stringify(g)).toBe(before);
+    }
+    g.start(1); g.pause(); g.pause(); g.winNow();
+    expect(g.mode).toBe('result'); expect(g.won).toBe(true);
   });
   test('stamina cost, regeneration, gating and cap', () => {
     const g = new Game(); g.start(1); g.act('punch'); expect(g.stamina).toBe(76);
@@ -125,7 +155,7 @@ describe('deterministic arcade rules', () => {
     const g=new Game();g.start(1);for(let i=0;i<5;i++)g.tick(8.5);expect(g.mode).toBe('result');expect(g.won).toBe(false);expect(g.hp).toBe(0);expect(g.act('punch')).toBe('blocked');
   });
   test('malformed, wrong-version and invalid progress are safe',()=>{
-    for(const raw of [null,'oops','null','{}','{"version":3,"unlocked":2,"best":99}','{"version":2,"unlocked":3,"best":1}','{"version":2,"unlocked":2,"best":-1}','{"version":1,"unlocked":7,"best":1}'])expect(readProgress(raw)).toEqual({version:2,unlocked:1,best:0});
+    for(const raw of [null,'oops','null','{}','{"version":3,"unlocked":2,"best":99}','{"version":2,"unlocked":3,"best":1}','{"version":2,"unlocked":2,"best":-1}','{"version":1,"unlocked":7,"best":1}'])expect(readProgress(raw)).toEqual({version:2,unlocked:2,best:0});
     expect(readProgress('{"version":2,"unlocked":2,"best":1024}')).toEqual({version:2,unlocked:2,best:1024});
   });
   test('v1 saves migrate to the new order: yard-only stays at the bar, anything past the yard opens the street; best survives',()=>{
