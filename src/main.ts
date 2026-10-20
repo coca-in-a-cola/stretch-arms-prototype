@@ -261,7 +261,7 @@ const textures = {
   ...Object.fromEntries(PROP_KINDS.map(k => [k, spriteTexture(PROPS[k].sprite, k === 'barrel' || k === 'hat' ? 'barrel' : 'bottle')])),
 } as Record<BodyKind, THREE.Texture>;
 /** Bar patrons: one drawn pose each (wind-up / hurt / knockout are acted with squash, tint and spin). */
-const skins: Record<Exclude<Skin, 'cat'>, THREE.Texture> = { walrus: spriteTexture('gen_walrus.png', 'enemy'), bulldog: spriteTexture('gen_bulldog.png', 'enemy'), weasel: spriteTexture('gen_weasel.png', 'enemy') };
+const skins: Record<Exclude<Skin, 'cat' | 'weasel'>, THREE.Texture> = { walrus: spriteTexture('gen_walrus.png', 'enemy'), bulldog: spriteTexture('gen_bulldog.png', 'enemy') };
 /** Drawn acting frames (gen_ sheets): the bully's wind-up / hurt / knocked-out poses, the dog's walk and sad sit. */
 const frames = {
   windup: spriteTexture('gen_cat_windup.png', 'enemy'), hurt: spriteTexture('gen_cat_hurt.png', 'enemy'), ko: spriteTexture('gen_cat_ko.png', 'enemy'),
@@ -382,7 +382,7 @@ function overlay(map: THREE.Texture, w: number, h: number, order = 2) {
 
 interface ActorView {
   kind: Kind; group: THREE.Group; body: THREE.Group; sprite: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial>;
-  flash: number; sad: number; facing: number; antic?: boolean; knock?: number; who?: FriendKind | ThugKind; badge?: THREE.Sprite; zzz?: THREE.Sprite; beam?: THREE.Sprite; hole?: THREE.Mesh; ascending?: boolean; /** Health bar: the trailing 'just lost' chunk, eased down to the real value. */ ghost?: number; frame?: string; wound?: boolean; skin?: Exclude<Skin, 'cat'>; wet?: number; yuck?: boolean; warning?: THREE.Sprite; stars?: THREE.Sprite; halo?: THREE.Sprite; cloud?: THREE.Sprite;
+  flash: number; sad: number; facing: number; antic?: boolean; knock?: number; who?: FriendKind | ThugKind; badge?: THREE.Sprite; zzz?: THREE.Sprite; beam?: THREE.Sprite; hole?: THREE.Mesh; ascending?: boolean; /** Health bar: the trailing 'just lost' chunk, eased down to the real value. */ ghost?: number; frame?: string; wound?: boolean; skin?: Exclude<Skin, 'cat' | 'weasel'>; wet?: number; yuck?: boolean; warning?: THREE.Sprite; stars?: THREE.Sprite; halo?: THREE.Sprite; cloud?: THREE.Sprite;
 }
 const actorGroup = new THREE.Group(); scene.add(actorGroup);
 const views = new Map<number, ActorView>();
@@ -394,7 +394,7 @@ const exits = new Map<number, Exit>();
 function makeView(t: Actor): ActorView {
   const c = bodyOf(t.kind, t.who); const group = new THREE.Group(), body = new THREE.Group(); group.add(body);
   const geometry = new THREE.PlaneGeometry(c.w, c.h); geometry.translate(0, c.h / 2, 0);
-  const skin = t.kind === 'enemy' && t.skin && t.skin !== 'cat' ? t.skin : undefined;
+  const skin = t.kind === 'enemy' && t.skin && (t.skin === 'walrus' || t.skin === 'bulldog') ? t.skin : undefined;
   const map = skin ? skins[skin] : t.kind === 'friend' ? friendFrames[t.who as FriendKind].idle : t.kind === 'thug' ? thugFrames[t.who as ThugKind].appear : textures[t.kind as BodyKind];
   const material = new THREE.MeshBasicMaterial({ map, alphaTest: .5, side: THREE.DoubleSide });
   const sprite = new THREE.Mesh(geometry, material); sprite.castShadow = true;
@@ -443,7 +443,7 @@ function syncActors(time: number) {
   }
   for (const t of visible) {
     // Ids restart with every level: a view left over from another actor with the same id is rebuilt, never reused.
-    const old = views.get(t.id), skin = t.kind === 'enemy' && t.skin && t.skin !== 'cat' ? t.skin : undefined;
+    const old = views.get(t.id), skin = t.kind === 'enemy' && t.skin && (t.skin === 'walrus' || t.skin === 'bulldog') ? t.skin : undefined;
     if (old && (old.kind !== t.kind || old.skin !== skin)) { views.delete(t.id); disposeView(old); }
     const view = views.get(t.id) ?? makeView(t); const c = bodyOf(t.kind, t.who);
     const p = pose(game.level, t, motion);

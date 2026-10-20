@@ -84,3 +84,18 @@ export function thugPose(s: ThugSpot, age: number, motion = true): Vec3 {
   if (s.from === 'manhole') return { x: s.x, y: -1.3 * (1 - k), z: s.z };
   return { x: s.x + s.side * 1.8 * (1 - k), y: 0, z: s.z };
 }
+
+export const PEACEFUL_MODELS: readonly (FriendKind | 'dog')[] = ['mole', 'granny', 'kitten', 'pigeon', 'drunk', 'bartender', 'dog'] as const;
+export const BULLY_MODELS: readonly (ThugKind | 'cat' | 'walrus' | 'bulldog')[] = ['rat', 'gang', 'kid', 'cat', 'walrus', 'bulldog'] as const;
+
+export function isPeacefulActor(kind: string, who?: string): boolean {
+  if (kind === 'dog') return true;
+  if (kind === 'friend') return who ? (PEACEFUL_MODELS as readonly string[]).includes(who) : true;
+  return false;
+}
+
+export function isBullyActor(kind: string, who?: string): boolean {
+  if (kind === 'enemy') return true;
+  if (kind === 'thug') return who ? (BULLY_MODELS as readonly string[]).includes(who) : true;
+  return false;
+}
