@@ -1,5 +1,5 @@
 import type { HitKind, Vec3 } from './aim';
-import { LEVELS, LAST_LEVEL, WINDUP, onLanding, pose, type GagKind, type Layer, type PropKind, type Skin } from './layout';
+import { LEVELS, LAST_LEVEL, WINDUP, DUCKS, onLanding, pose, type GagKind, type Layer, type PropKind, type Skin } from './layout';
 import { PROPS, REACH_COST } from './props';
 import { launch, step, type Flight, type Impact } from './throw';
 import type { Hittable } from './aim';
@@ -36,7 +36,7 @@ const koStyle = (n: number): KoHow => (['spin', 'stars', 'birds'] as const)[n % 
 /** Things that just happened, drained by the renderer to play attack / knockout / sad-dog / ult animations. */
 export interface GameEvent {
   type: 'attack' | 'ko' | 'dog' | 'smash' | 'ult' | 'ultEnd' | 'hatBack' | 'hurt' | 'land' | 'shatter' | 'thud' | 'gag' | 'offend' | 'nuisance'
-    | 'blind' | 'squeak' | 'seeds' | 'geyser' | 'knock' | 'stick' | 'strike' | 'hazard' | 'crash' | 'milestone' | 'tear';
+    | 'blind' | 'squeak' | 'seeds' | 'geyser' | 'knock' | 'stick' | 'strike' | 'hazard' | 'crash' | 'milestone' | 'tear' | 'advance' | 'taunt';
   /** 'ko': how the bully leaves (spinning, as stars, as birds, flattened). 'seeds': who the melon seeds struck. 'hazard'/'crash': piano or safe. */
   how?: KoHow; ids?: number[]; hazard?: 'piano' | 'safe';
   /** 'offend' / 'nuisance' / thug 'ko': which friend, thug or the herald; 'offend' also carries the line it shouts. */ who?: FriendKind | ThugKind | 'herald'; text?: string;
@@ -239,13 +239,69 @@ export class Game {
       }
       // Mid-pour nobody gets a swing in: they are too busy being disgusted.
       if (pouring && t.kind === 'enemy') t.age = Math.min(t.age, Math.max(t.age - dt, t.deadline - 1.0));
-      if (t.kind === 'enemy' && t.age >= t.deadline) { this.actors = this.actors.filter(v => v.id !== t.id); this.hp--; this.combo = 0; this.defeated++; this.events.push({ type: 'attack', id: t.id, combo: 0 }); this.message = 'Прилетело! Следи за замахом.'; }
+      if (t.kind === 'enemy') this.updateEnemy(t);
     }
     if (this.hp <= 0) { this.finish(false); return; }
     if (this.defeated >= this.goal) { this.finish(true); return; }
-    if (this.spawnClock >= 1.55) { this.spawnClock = 0; this.spawn(); }
+    while (this.spawnClock >= 1.55) { this.spawnClock -= 1.55; this.spawn(); }
     this.stepGeysers(dt); this.stepHazards(dt, pouring); if (this.mode !== 'play') return;
     if (this.layout.thugs && !pouring) { this.thugClock += dt; if (this.thugClock >= (this.thugs ? THUG.every : THUG.first)) { this.thugClock = 0; this.spawnThug(); } }
+  }
+  private updateEnemy(t: Actor) {
+    const layer = t.layer ?? (t.slot !== undefined && this.layout.slots?.[t.slot] ? this.layout.slots[t.slot].layer : layerAt(t.z ?? 0));
+    t.layer = layer;
+    if (t.slot === undefined || layer === 'foreground' || !this.layout.slots?.length) {
+      if (t.age >= t.deadline) {
+        this.actors = this.actors.filter(v => v.id !== t.id);
+        this.hp--;
+        this.combo = 0;
+        this.defeated++;
+        this.events.push({ type: 'attack', id: t.id, combo: 0 });
+        this.message = 'Прилетело! Следи за замахом.';
+      }
+      return;
+    }
+    const advanceAge = t.antic ? ANTIC.start + ANTIC.len : DUCKS[0].at + DUCKS[0].len;
+    while (t.layer !== 'foreground' && t.age >= advanceAge) {
+      const targetLayer: Layer = t.layer === 'background' ? 'midground' : 'foreground';
+      const freeSlots: number[] = [];
+      for (let i = 0; i < this.layout.slots.length; i++) {
+        if (this.layout.slots[i].layer === targetLayer && !this.actors.some(a => a.kind === 'enemy' && a.id !== t.id && a.slot === i)) {
+          freeSlots.push(i);
+        }
+      }
+      if (freeSlots.length > 0) {
+        freeSlots.sort((a, b) => Math.abs(this.layout.slots[a].x - t.x) - Math.abs(this.layout.slots[b].x - t.x));
+        const nextSlotIndex = freeSlots[0];
+        const nextSlot = this.layout.slots[nextSlotIndex];
+        t.slot = nextSlotIndex;
+        t.x = nextSlot.x;
+        t.y = nextSlot.y;
+        t.z = nextSlot.z;
+        t.layer = nextSlot.layer;
+        if (nextSlot.skin) t.skin = nextSlot.skin;
+        t.age -= advanceAge;
+        t.deadline = this.layout.deadline + (t.antic ? ANTIC.len : 0);
+        this.events.push({ type: 'advance', id: t.id, combo: this.combo, point: { x: t.x, y: t.y, z: t.z ?? 0 } });
+        this.message = targetLayer === 'foreground' ? 'Задира перебежал к переднему укрытию!' : 'Задира подбирается ближе!';
+      } else {
+        if (t.age >= t.deadline) {
+          t.age = 0;
+          t.deadline = this.layout.deadline + (t.antic ? ANTIC.len : 0);
+          this.events.push({ type: 'taunt', id: t.id, combo: this.combo, point: { x: t.x, y: t.y, z: t.z ?? 0 } });
+          this.message = t.layer === 'background' ? 'Задира дразнится из глубины!' : 'Задира выглядывает и дразнит!';
+        }
+        break;
+      }
+    }
+    if (t.layer === 'foreground' && t.age >= t.deadline) {
+      this.actors = this.actors.filter(v => v.id !== t.id);
+      this.hp--;
+      this.combo = 0;
+      this.defeated++;
+      this.events.push({ type: 'attack', id: t.id, combo: 0 });
+      this.message = 'Прилетело! Следи за замахом.';
+    }
   }
   /** A combo step: milestones (3, 5, 8, 12) raise an intertitle. */
   private bump(n = 1) {

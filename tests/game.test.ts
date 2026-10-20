@@ -144,6 +144,66 @@ describe('deterministic arcade rules', () => {
     g.start(2); g.finish(true); const last=resultActions(g); expect(last[0]).toMatchObject({id:'menu',primary:true}); expect(last.some(x=>x.id==='retry')).toBe(true); expect(last.some(x=>x.id==='next')).toBe(false);
     g.start(1); g.finish(false); expect(resultActions(g)[0]).toMatchObject({id:'retry',primary:true});
   });
+  test('spatial layered combat: enemies ONLY strike from foreground cover; background and midground only peek, taunt, and advance step-by-step', () => {
+    const g = new Game(); g.start(1);
+    g.actors = g.actors.filter(t => t.kind !== 'enemy');
+    g.spawnClock = -999;
+    const bgEnemy = { id: 50, kind: 'enemy' as const, slot: 3, layer: 'background' as const, x: g.layout.slots[3].x, y: g.layout.slots[3].y, z: g.layout.slots[3].z, age: 0, deadline: 5.2, hp: 30, maxHp: 30 };
+    g.actors.push(bgEnemy);
+    expect(g.hp).toBe(5);
+    g.tick(2.3);
+    expect(bgEnemy.layer).toBe('midground');
+    expect(bgEnemy.slot).toBe(4);
+    expect(g.hp).toBe(5);
+    expect(g.events.some(e => e.type === 'advance' && e.id === 50)).toBe(true);
+    expect(g.events.some(e => e.type === 'attack')).toBe(false);
+
+    g.tick(2.3);
+    expect(bgEnemy.layer).toBe('foreground');
+    expect(bgEnemy.slot).toBe(2);
+    expect(g.hp).toBe(5);
+    expect(g.events.some(e => e.type === 'attack')).toBe(false);
+
+    g.tick(5.3);
+    expect(g.hp).toBe(4);
+    expect(g.events.some(e => e.type === 'attack' && e.id === 50)).toBe(true);
+    expect(g.actors.includes(bgEnemy)).toBe(false);
+  });
+  test('spatial layered combat: when target cover spots are occupied, midground enemies hold cover and taunt without attacking from afar', () => {
+    const g = new Game(); g.start(1);
+    g.actors = g.actors.filter(t => t.kind !== 'enemy');
+    g.spawnClock = -999;
+    const fg0 = { id: 60, kind: 'enemy' as const, slot: 0, layer: 'foreground' as const, x: g.layout.slots[0].x, y: g.layout.slots[0].y, z: g.layout.slots[0].z, age: 0, deadline: 99, hp: 30, maxHp: 30 };
+    const fg2 = { id: 61, kind: 'enemy' as const, slot: 2, layer: 'foreground' as const, x: g.layout.slots[2].x, y: g.layout.slots[2].y, z: g.layout.slots[2].z, age: 0, deadline: 99, hp: 30, maxHp: 30 };
+    const mid = { id: 62, kind: 'enemy' as const, slot: 1, layer: 'midground' as const, x: g.layout.slots[1].x, y: g.layout.slots[1].y, z: g.layout.slots[1].z, age: 0, deadline: 5.2, hp: 30, maxHp: 30 };
+    g.actors.push(fg0, fg2, mid);
+
+    g.tick(2.3);
+    expect(mid.layer).toBe('midground');
+    expect(mid.slot).toBe(1);
+    expect(g.hp).toBe(5);
+    expect(g.events.some(e => e.type === 'attack')).toBe(false);
+
+    g.tick(5.5);
+    expect(mid.layer).toBe('midground');
+    expect(g.hp).toBe(5);
+    expect(g.events.some(e => e.type === 'taunt' && e.id === 62)).toBe(true);
+    expect(g.events.some(e => e.type === 'attack')).toBe(false);
+  });
+  test('scaling enemy count across depth layers does not cause cheap damage from afar', () => {
+    const g = new Game({ version: 2, unlocked: 2, best: 0 }); g.start(2);
+    expect(g.actors.filter(t => t.kind === 'enemy').length).toBe(1);
+    for (let i = 0; i < 4; i++) g.spawn();
+    const enemies = g.actors.filter(t => t.kind === 'enemy');
+    expect(enemies.length).toBe(5);
+    const nonFg = enemies.filter(t => t.layer !== 'foreground');
+    expect(nonFg.length).toBeGreaterThanOrEqual(2);
+    g.tick(1.5);
+    expect(g.hp).toBe(5);
+    for (const foe of nonFg) {
+      expect(foe.layer === 'midground' || foe.layer === 'background' || foe.layer === 'foreground').toBe(true);
+    }
+  });
 
 });
 

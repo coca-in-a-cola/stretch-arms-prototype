@@ -444,7 +444,8 @@ function syncActors(time: number) {
     const a = motion ? (t.id < 0 ? time : t.age) + t.id * .7 : 0;
     let sx = 1, sy = 1, rot = 0, lift = 0; const tint = new THREE.Color(1, 1, 1);
     if (t.kind === 'enemy') {
-      const left = t.deadline - t.age, wind = motion ? THREE.MathUtils.clamp(1 - left / WINDUP, 0, 1) : 0;
+      const isForeground = t.layer === 'foreground' || t.layer === undefined;
+      const left = t.deadline - t.age, wind = (motion && isForeground) ? THREE.MathUtils.clamp(1 - left / WINDUP, 0, 1) : 0;
       const bounce = Math.abs(Math.sin(a * 4.2));
       sx = 1 + (1 - bounce) * .05; sy = 1 - (1 - bounce) * .06 + bounce * .03; lift = bounce * .06; rot = Math.sin(a * 2.1) * .035;
       if (wind > 0 && !view.wound && t.id > 0) { view.wound = true; sound('windup'); }
@@ -456,7 +457,7 @@ function syncActors(time: number) {
         const pulse = .5 + .5 * Math.sin(time * 18); tint.setRGB(1, 1 - .45 * wind * pulse, 1 - .5 * wind * pulse);
       }
       if (view.warning) {
-        const shown = t.id > 0 && left < WINDUP * 1.6;
+        const shown = t.id > 0 && isForeground && left < WINDUP * 1.6;
         view.warning.visible = shown; view.warning.scale.setScalar(.38 + wind * .3 + (motion ? Math.sin(time * 14) * .03 : 0));
       }
       if (view.stars) view.stars.visible = false;
@@ -705,6 +706,8 @@ function drainEvents(at?: { x: number; y: number }) {
     if (e.type === 'gag') playGag(e);
     if (e.type === 'shatter' && e.point && e.prop) { shatter(e.point, PROPS[e.prop].shards ?? ['#ffffff']); pop('smash', e.point, .8); }
     if (e.type === 'ultEnd') { sound('slide'); callout(e.amount ? `НИ КАПЛИ МИМО! +${e.amount}` : 'ПРОЛИЛ… ПЛАТИ ТРИСТА', innerWidth / 2, innerHeight * .6, e.amount ? 'combo' : 'bad'); }
+    if (e.type === 'advance') { sound('whoosh'); callout('БЛИЖЕ!', p.x, p.y - 30, 'bad'); }
+    if (e.type === 'taunt') { sound('pop'); callout(['ЭЙ ТЫ!', 'НЕ ДОСТАНЕШЬ!', 'ХА-ХА!'][e.id % 3], p.x, p.y - 30, 'bad'); }
   }
   game.events.length = 0;
 }
