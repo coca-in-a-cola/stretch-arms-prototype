@@ -687,8 +687,13 @@ function perform(action: Action) {
 /** Comic callout text popping at a screen point (combo counts, dog scolding, attacks). */
 function callout(text: string, x: number, y: number, tone: 'combo' | 'bad' | 'pop' = 'pop') {
   const el = document.createElement('div'); el.className = 'callout ' + tone; el.textContent = text;
-  el.style.left = Math.round(THREE.MathUtils.clamp(x, 90, innerWidth - 90)) + 'px'; el.style.top = Math.round(THREE.MathUtils.clamp(y, 120, innerHeight - 160)) + 'px';
-  ui.append(el); setTimeout(() => el.remove(), 900);
+  ui.append(el);
+  // Reserve room for the 1.15x pop and rotation, including wrapped mobile captions.
+  const halfWidth = Math.min(innerWidth / 2, el.offsetWidth * .62 + 16);
+  const halfHeight = el.offsetHeight * .7 + 16;
+  el.style.left = Math.round(THREE.MathUtils.clamp(x, halfWidth, innerWidth - halfWidth)) + 'px';
+  el.style.top = Math.round(THREE.MathUtils.clamp(y, Math.max(120, halfHeight), Math.max(120, innerHeight - Math.max(110, halfHeight)))) + 'px';
+  setTimeout(() => el.remove(), 900);
 }
 const COMBO_WORDS = ['', '', 'ДВОЙНОЙ!', 'ТРОЙНОЙ!', 'РАЗМАШИСТО!', 'НЕУДЕРЖИМ!'];
 function drainEvents(at?: { x: number; y: number }) {

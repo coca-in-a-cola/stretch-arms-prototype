@@ -7,13 +7,18 @@ html[data-reduced-motion=true] *,html[data-reduced-motion=true] *:before,html[da
 html[data-reduced-motion=true] button:hover,html[data-reduced-motion=true] button:active{transform:none}
 @media(max-width:650px){.settings{top:64px;left:12px;right:12px;gap:8px;justify-content:center}.settings button{padding:6px 9px;font-size:11px}}
 @media(max-height:500px){.settings{top:auto;bottom:10px;left:auto;right:12px}.settings button{font-size:11px;padding:6px 8px}.centerpanel{max-height:calc(100dvh - 80px);overflow-y:auto}#app[data-mode=pause] .settings,#app[data-mode=result] .settings{display:none}}
-.callout{position:absolute;transform:translate(-50%,-50%);font-weight:950;font-size:clamp(20px,4.4vw,38px);letter-spacing:-1px;color:#fffbe8;-webkit-text-stroke:2px #151715;text-shadow:3px 3px 0 #151715;white-space:nowrap;pointer-events:none;animation:callout .9s cubic-bezier(.2,1.6,.4,1) forwards;z-index:6}
+.callout{position:absolute;transform:translate(-50%,-50%);font-weight:950;font-size:clamp(20px,4.4vw,38px);line-height:1.2;letter-spacing:-.5px;color:#fffbe8;background:#151715;border:2px solid #fffbe8;border-radius:12px;padding:6px 12px;box-shadow:3px 3px 0 #151715;-webkit-text-stroke:1.5px #151715;paint-order:stroke fill;text-shadow:2px 2px 0 #151715;width:max-content;max-width:80vw;white-space:normal;overflow-wrap:anywhere;text-align:center;pointer-events:none;animation:callout .9s cubic-bezier(.2,1.6,.4,1) forwards;z-index:6}
 .callout.combo{color:#c7f653;font-size:clamp(24px,5.4vw,48px)}
 .callout.bad{color:#ff6b8f}
 @keyframes callout{0%{transform:translate(-50%,-50%) scale(.3) rotate(-8deg);opacity:0}18%{transform:translate(-50%,-50%) scale(1.15) rotate(-4deg);opacity:1}70%{transform:translate(-50%,-80%) scale(1) rotate(-3deg);opacity:1}100%{transform:translate(-50%,-120%) scale(.95) rotate(-3deg);opacity:0}}
 html[data-reduced-motion=true] .callout{animation:none!important;opacity:1}
-.progress,.message{background:#f4f1e8ee;border:2px solid #222;border-radius:30px;padding:6px 14px;text-shadow:none;width:max-content;max-width:90vw}
-.message{left:50%;right:auto;transform:translateX(-50%)}
+.progress,.message{background:#f4f1e8;color:#151715;border:2px solid #151715;border-radius:16px;padding:8px 14px;box-shadow:2px 2px 0 #151715;text-shadow:none;line-height:1.4;width:max-content;max-width:90vw;overflow-wrap:anywhere}
+.progress{top:144px;font-size:12px;letter-spacing:1px}
+.message{left:50%;right:auto;transform:translateX(-50%);font-size:14px}
+.message:empty{display:none}
+.hud{align-items:flex-start}
+.hudbox .small{text-shadow:1px 1px 0 #fffbe8}
+.hearts{color:#b91d51;-webkit-text-stroke:1px #151715;paint-order:stroke fill}
 #arm{position:fixed;inset:0;width:100%;height:100%;display:block;pointer-events:none}
 #film{position:fixed;inset:0;pointer-events:none;background:radial-gradient(ellipse at center,transparent 58%,rgba(0,0,0,.34) 100%)}
 #film:after{content:'';position:absolute;inset:-64px;background-image:var(--grain);opacity:.06;mix-blend-mode:overlay;animation:grain .5s steps(4) infinite}
@@ -22,22 +27,22 @@ html[data-reduced-motion=true] .callout{animation:none!important;opacity:1}
 #scene{touch-action:none}
 .ultflash{position:absolute;inset:0;background:#fff;animation:fade .7s ease-out forwards;pointer-events:none;z-index:7}
 .intertitle{position:absolute;inset:0;display:grid;place-items:center;background:radial-gradient(ellipse at center,#000000b0 40%,#000000f0 100%);pointer-events:none;z-index:8}
-.intertitle>div{background:#0d0d0d;color:#f4f1e8;border:3px double #f4f1e8;outline:2px solid #f4f1e8;outline-offset:7px;padding:26px 44px;text-align:center;font-family:Georgia,'Times New Roman',serif;box-shadow:0 0 0 14px #0d0d0d;animation:flicker .12s steps(2) infinite;max-width:86vw}
+.intertitle>div{background:#0d0d0d;color:#f4f1e8;border:3px double #f4f1e8;outline:2px solid #f4f1e8;outline-offset:7px;padding:26px 44px;text-align:center;font-family:Georgia,'Times New Roman',serif;box-shadow:0 0 0 14px #0d0d0d;text-shadow:2px 2px 0 #151715;max-width:86vw;max-height:calc(100dvh - 48px);overflow-y:auto;overflow-wrap:anywhere}
 .intertitle b{display:block;font-size:clamp(38px,7.5vw,84px);line-height:.95;letter-spacing:.06em;margin:14px 0;font-weight:900}
-.intertitle small{display:block;font-size:clamp(11px,1.6vw,15px);letter-spacing:.25em;text-transform:uppercase;opacity:.85}
+.intertitle small{display:block;font-size:clamp(12px,1.6vw,15px);line-height:1.4;font-weight:700;letter-spacing:.15em;text-transform:uppercase}
 @keyframes flicker{0%{opacity:1}100%{opacity:.93}}
 html[data-reduced-motion=true] .intertitle>div{animation:none}
-.ultmeter{position:absolute;top:165px;left:50%;transform:translateX(-50%);display:flex;align-items:center;gap:10px;background:#151715;border:3px solid #151715;border-radius:30px;padding:5px 14px 5px 16px;box-shadow:3px 3px 0 #151715}
+.ultmeter{position:absolute;top:190px;left:50%;transform:translateX(-50%);display:flex;align-items:center;gap:10px;background:#151715;border:3px solid #151715;border-radius:30px;padding:5px 14px 5px 16px;box-shadow:3px 3px 0 #151715}
 .ultmeter[hidden]{display:none}
 .ultmeter b{color:#ffd400;font-size:14px;letter-spacing:2px;font-weight:950}
 .ultmeter span{display:block;width:min(46vw,340px);height:18px;background:#3a3a3a;border-radius:10px;overflow:hidden;border:2px solid #f4f1e8}
 .ultmeter i{display:block;height:100%;background:linear-gradient(#fff6b8,#ffd400 45%,#e6b800);transition:width .1s linear}
-@media(max-width:650px){.ultmeter{top:150px}}
-@media(max-height:550px){.ultmeter{top:132px}}
+@media(max-width:650px){.progress{top:130px}.ultmeter{top:176px}.pause{flex-shrink:0}.hudbox{min-width:0}.intertitle>div{padding:20px 16px}}
+@media(max-height:550px){.hud{padding:10px 16px}.hudbox{padding:8px 12px}.hearts{font-size:20px}.score{font-size:24px}.progress{top:110px}.ultmeter{top:154px}.message{bottom:108px;max-width:70vw}.intertitle>div{padding:14px 24px}}
 /* Wide-level edge hints: quiet chevrons while the street continues; a count of bullies off-screen; red pulse on a wind-up. */
-.panhint{position:absolute;top:50%;transform:translateY(-50%);display:grid;place-items:center;gap:2px;width:34px;padding:10px 0;border:2px solid #222;border-radius:18px;background:#f4f1e8c0;font-weight:900;font-size:16px;opacity:0;transition:opacity .25s;pointer-events:none}
+.panhint{position:absolute;top:50%;transform:translateY(-50%);display:grid;place-items:center;gap:2px;width:34px;padding:10px 0;border:2px solid #222;border-radius:18px;background:#f4f1e8;color:#151715;font-weight:900;font-size:16px;opacity:0;transition:opacity .25s;pointer-events:none}
 .panhint.left{left:8px}.panhint.right{right:8px}
-.panhint.on{opacity:.62}
+.panhint.on{opacity:1}
 .panhint span{font-size:12px;line-height:1}
 .panhint span:empty{display:none}
 .panhint.hot{opacity:1;background:#ff6b8f;animation:panhot .45s ease-in-out infinite alternate}
@@ -48,7 +53,7 @@ html[data-reduced-motion=true] .intertitle>div{animation:none}
 /* SA-V4-17 combo milestones: an iris wipe closes on the action, an old-cartoon intertitle shouts, the iris opens again. */
 @property --iris{syntax:'<percentage>';inherits:false;initial-value:150%}
 .iris{position:absolute;inset:0;display:grid;place-items:center;pointer-events:none;z-index:9;background:radial-gradient(circle at 50% 46%,transparent 0 var(--iris),#0d0d0d calc(var(--iris) + .4%));animation:iris 1.45s ease-in-out forwards}
-.iris>div{background:#0d0d0d;color:#f4f1e8;border:3px double #f4f1e8;outline:2px solid #f4f1e8;outline-offset:6px;padding:14px 34px;font:900 clamp(34px,7vw,76px)/1 Georgia,'Times New Roman',serif;letter-spacing:.06em;animation:irisCard 1.45s ease-in-out forwards}
+.iris>div{background:#0d0d0d;color:#f4f1e8;border:3px double #f4f1e8;outline:2px solid #f4f1e8;outline-offset:6px;padding:14px 24px;font:900 clamp(28px,7vw,76px)/1.2 Georgia,'Times New Roman',serif;letter-spacing:.04em;text-shadow:2px 2px 0 #151715;max-width:86vw;overflow-wrap:anywhere;text-align:center;animation:irisCard 1.45s ease-in-out forwards}
 @keyframes iris{0%{--iris:150%}28%{--iris:20%}72%{--iris:20%}100%{--iris:150%}}
 @keyframes irisCard{0%,18%{opacity:0;transform:scale(.6) rotate(-4deg)}30%{opacity:1;transform:scale(1.08) rotate(2deg)}40%,70%{opacity:1;transform:scale(1) rotate(-1deg)}84%,100%{opacity:0;transform:scale(.8)}}
 [data-reduced-motion="true"] .iris{animation:none;--iris:150%;background:none}

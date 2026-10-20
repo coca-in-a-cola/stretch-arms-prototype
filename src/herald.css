@@ -6,14 +6,14 @@
 .hd-flyer{position:absolute;left:55%;top:22%;width:45%;container-type:inline-size;transform:rotate(3deg);transform-origin:50% 90%;filter:drop-shadow(5px 7px 0 #1a120a66)}
 .hd-flyer[data-art=wide]{width:58%;left:48%;top:36%;transform:rotate(-2deg)}
 .hd-flyer img{display:block;width:100%;height:auto;user-select:none}
-.hd-text{position:absolute;inset:16% 17% 13%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:.15em;text-align:center;color:#3b2310;font-family:'Bookman Old Style',Rockwell,Georgia,'Times New Roman',serif}
+.hd-text{position:absolute;inset:16% 17% 13%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:.15em;padding:6px;background:#ffe9a8;border:2px solid #3b2310;border-radius:3px;text-align:center;color:#24170d;font-family:'Bookman Old Style',Rockwell,Georgia,'Times New Roman',serif}
 .hd-flyer[data-art=wide] .hd-text{inset:16% 13% 14%}
 .hd-text h3{margin:0 0 .25em;font-size:10cqw;line-height:1;font-weight:900;letter-spacing:.02em;text-transform:uppercase;color:#7a1a12;border-bottom:.12em double #3b2310;padding-bottom:.12em}
 .hd-flyer[data-art=wide] .hd-text h3{font-size:8.6cqw}
 .hd-text p{margin:0;font-size:6.2cqw;line-height:1.18;font-weight:700}
 .hd-flyer[data-art=wide] .hd-text p{font-size:5.3cqw}
-.hd-text small{margin-top:.8em;font-size:3.8cqw;font-weight:700;letter-spacing:.04em;text-transform:uppercase;opacity:.7}
-.hd-flyer[data-art=wide] .hd-text small{font-size:3.3cqw}
+.hd-text small{margin-top:.6em;font-size:max(12px,3.8cqw);line-height:1.3;font-weight:800;letter-spacing:.02em;text-transform:uppercase}
+.hd-flyer[data-art=wide] .hd-text small{font-size:max(12px,3.3cqw)}
 .hd-flyer.hd-in{animation:hd-in .45s cubic-bezier(.2,1.5,.4,1) both}
 .hd-card{position:absolute;left:24%;top:-3%;max-width:76%;transform:rotate(-4deg);background:#ffe9a8;border:3px solid #2a1a0c;border-radius:4px;padding:.45em .8em;font:900 clamp(17px,2.3vw,30px)/1.1 Georgia,'Times New Roman',serif;color:#b3122e;box-shadow:5px 5px 0 #2a1a0c;text-align:center;animation:hd-card .35s cubic-bezier(.2,1.6,.4,1) both}
 #herald[data-phase=enter] .hd-stage{animation:hd-pop .7s cubic-bezier(.2,1.3,.4,1) both}
@@ -21,7 +21,7 @@
 #herald[data-phase=mad] .hd-guy{animation:hd-shake .32s linear 2}
 #herald[data-paused=true] *{animation-play-state:paused!important}
 .hd-skip{position:fixed;right:22px;top:118px;pointer-events:auto;padding:12px 18px;font-size:16px;z-index:2}
-.hd-skip small{display:block;font-size:9px;letter-spacing:1px;font-weight:600;margin-top:3px}
+.hd-skip small{display:block;font-size:12px;letter-spacing:.5px;font-weight:800;margin-top:3px}
 #app[data-mode=pause] .hd-skip,#app[data-mode=result] .hd-skip{display:none}
 #app[data-brief=true] #ui .controls,#app[data-brief=true] #ui .message,#app[data-brief=true] #ui .progress{visibility:hidden}
 .hd-half{position:fixed!important;margin:0;transform:rotate(3deg);animation:hd-fly-l .85s cubic-bezier(.3,.1,.6,1) forwards}
@@ -42,4 +42,18 @@
   .hd-skip{top:auto;bottom:auto;top:96px;right:12px;padding:10px 14px;font-size:14px}
   .hd-card{left:4%;top:-14%;max-width:92%;font-size:17px}
 }
-@media (max-height:500px){.hd-skip{top:86px}}
+/* Keep briefing copy at reading size instead of shrinking it with the host artwork. */
+@media (max-width:650px), (max-height:500px){
+  .hd-flyer,.hd-flyer[data-art=wide]{width:min(76vw,360px);left:auto;right:6%;top:12%;transform:none}
+  .hd-text,.hd-flyer[data-art=wide] .hd-text{inset:10% 8%;padding:10px;gap:4px}
+  .hd-text h3,.hd-flyer[data-art=wide] .hd-text h3{font-size:clamp(22px,8cqw,30px)}
+  .hd-text p,.hd-flyer[data-art=wide] .hd-text p{font-size:clamp(16px,5.8cqw,21px);line-height:1.25}
+  .hd-card{color:#791025;line-height:1.3}
+}
+@media (max-height:500px){
+  .hd-stage{--hw:110vh;left:12%;bottom:-4vh}
+  .hd-flyer,.hd-flyer[data-art=wide]{width:min(42vw,350px);right:-34%;top:4%}
+  .hd-text,.hd-flyer[data-art=wide] .hd-text{inset:5% 8%}
+  .hd-card{left:-10%;top:3%;max-width:72%;font-size:18px}
+  .hd-skip{top:auto;bottom:18px;right:18px}
+}
