@@ -36,12 +36,12 @@ describe('deterministic arcade rules', () => {
     g.stamina=100;g.act('punch',dog.id);expect(g.score).toBe(150);
     g.tick(.7);expect(g.actors).not.toContain(dog);
   });
-  test('health bars: every enemy has HP; a punch takes a third, a thrown prop more; the bar shows on damage and fades', () => {
+  test('health bars: every enemy has HP; a punch takes a third, a thrown prop more; the bar shows from the start in combat', () => {
     const g = new Game(); g.start(1); const enemy = g.actors.find(t => t.kind === 'enemy')!;
-    expect(enemy.hp).toBe(ENEMY_HP.walrus); expect(enemy.maxHp).toBe(30); expect(healthBarAlpha(enemy, g.elapsed)).toBe(0); // no bar before any damage
+    expect(enemy.hp).toBe(ENEMY_HP.walrus); expect(enemy.maxHp).toBe(30); expect(healthBarAlpha(enemy, g.elapsed)).toBe(1); // visible from the start
     expect(g.act('punch', enemy.id)).toBe('hit'); expect(enemy.hp).toBe(30 - PUNCH_DAMAGE); expect(g.actors).toContain(enemy);
     expect(g.events.find(e => e.type === 'hurt')).toMatchObject({ id: enemy.id, amount: PUNCH_DAMAGE });
-    expect(healthBarAlpha(enemy, g.elapsed)).toBe(1); expect(healthBarAlpha(enemy, g.elapsed + 2.6)).toBeGreaterThan(0); expect(healthBarAlpha(enemy, g.elapsed + 3.1)).toBe(0);
+    expect(healthBarAlpha(enemy, g.elapsed)).toBe(1); expect(healthBarAlpha(enemy, g.elapsed + 2.6)).toBe(1);
     const prop = g.actors.find(t => t.kind === 'mug' || t.kind === 'whiskey')!;
     g.stamina = 100; expect(g.act('grab', prop.id)).toBe('grab'); expect(g.held).toBe(prop.kind); expect(g.stamina).toBe(100 - REACH_COST);
     g.stamina = 100; expect(g.act('grab', enemy.id)).toBe('throw'); expect(g.stamina).toBe(100 - PROPS[prop.kind as 'mug'].throw);

@@ -1297,15 +1297,15 @@ function drawHealthBars(g: CanvasRenderingContext2D, dt: number, ink: number) {
     const w = THREE.MathUtils.clamp(unit * .95, 36, 150), h = Math.max(8, w * .16), x = p.x - w / 2, y = p.y - h, ratio = (t.hp ?? 0) / t.maxHp;
     v.ghost = Math.max(ratio, (v.ghost ?? 1) - dt * .9);
     g.save(); g.globalAlpha = a;
-    roundRect(g, x, y, w, h, h / 2); g.fillStyle = '#2b2b2b'; g.fill();
-    if (v.ghost > ratio) { roundRect(g, x, y, w * v.ghost, h, h / 2); g.fillStyle = '#fff6c8'; g.fill(); }
-    roundRect(g, x, y, Math.max(h, w * ratio), h, h / 2); g.fillStyle = ratio > .6 ? '#8fdc2a' : ratio > .3 ? '#ffd84a' : '#ff4f6d'; if (ratio > 0) g.fill();
+    roundRect(g, x, y, w, h, h / 2); g.fillStyle = '#260a0a'; g.fill();
+    if (v.ghost > ratio) { roundRect(g, x, y, w * v.ghost, h, h / 2); g.fillStyle = '#ff8585'; g.fill(); }
+    roundRect(g, x, y, Math.max(h, w * ratio), h, h / 2); g.fillStyle = ratio > .6 ? '#e61e1e' : ratio > .3 ? '#cc1414' : '#990c0c'; if (ratio > 0) g.fill();
     if (v.flash > .3) { roundRect(g, x, y, w, h, h / 2); g.fillStyle = `rgba(255,255,255,${(v.flash - .3) * .9})`; g.fill(); }
     // Segment ticks every 10 HP: you can count the punches left.
-    g.strokeStyle = '#151715'; g.lineWidth = Math.max(1.5, ink * .3);
+    g.strokeStyle = '#180404'; g.lineWidth = Math.max(1.5, ink * .3);
     for (let k = 10; k < t.maxHp; k += 10) { const sx = x + w * k / t.maxHp; g.beginPath(); g.moveTo(sx, y + 2); g.lineTo(sx, y + h - 2); g.stroke(); }
-    roundRect(g, x, y, w, h, h / 2); g.lineWidth = Math.max(2, ink * .45); g.stroke();
-    g.beginPath(); g.moveTo(x + h * .6, y + h * .3); g.lineTo(x + w * Math.max(.1, ratio) - h * .4, y + h * .3); g.strokeStyle = 'rgba(255,255,255,.55)'; g.lineWidth = Math.max(1, h * .16); g.lineCap = 'round'; g.stroke(); // shine
+    roundRect(g, x, y, w, h, h / 2); g.lineWidth = Math.max(2, ink * .45); g.strokeStyle = '#180404'; g.stroke();
+    g.beginPath(); g.moveTo(x + h * .6, y + h * .3); g.lineTo(x + w * Math.max(.1, ratio) - h * .4, y + h * .3); g.strokeStyle = 'rgba(255,200,200,.6)'; g.lineWidth = Math.max(1, h * .16); g.lineCap = 'round'; g.stroke(); // shine
     g.restore();
   }
   for (let i = damageNumbers.length - 1; i >= 0; i--) {

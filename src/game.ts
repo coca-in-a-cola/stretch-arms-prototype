@@ -83,9 +83,8 @@ export const ENEMY_HP: Record<Skin, number> = { cat: 30, walrus: 30, bulldog: 40
 export const STAMINA_REGEN: Record<number, number> = { 1: 29.4, 2: 21 };
 /** Health bars show on damage, hold, then fade so a calm street stays uncluttered. */
 export const HEALTHBAR = { hold: 2.2, fade: .8 } as const;
-export function healthBarAlpha(t: Pick<Actor, 'hurtAt'>, now: number) {
-  if (t.hurtAt === undefined) return 0;
-  const s = now - t.hurtAt; return s < HEALTHBAR.hold ? 1 : Math.max(0, 1 - (s - HEALTHBAR.hold) / HEALTHBAR.fade);
+export function healthBarAlpha(t?: Pick<Actor, 'hurtAt'>, now?: number) {
+  return 1;
 }
 
 const layerAt = (z: number): Layer => z > 1.5 ? 'foreground' : z > -5 ? 'midground' : 'background';
