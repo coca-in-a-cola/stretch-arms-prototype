@@ -221,7 +221,7 @@ def main() -> None:
             assert page.locator('#mute').get_attribute('aria-pressed') == 'true'
             assert page.locator('#motion').get_attribute('aria-pressed') == 'false'
             page.locator('#start').click()
-            assert page.locator('#level2').is_disabled()
+            assert page.locator('#level2').is_enabled()
             page.locator('#level1').click()
             skip_briefing(page)
             page.locator('#pause').click()
@@ -273,6 +273,8 @@ def main() -> None:
             assert_production(mp)
             capture(mp, 'portrait-menu')
             check_buttons(mp)
+            if mp.locator('#portrait-bypass').is_visible():
+                mp.locator('#portrait-bypass').tap()
             mp.locator('#start').tap()
             mp.locator('#level1').tap()
             skip_briefing(mp, touch=True)

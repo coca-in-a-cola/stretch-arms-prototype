@@ -52,7 +52,7 @@ html[data-reduced-motion=true] .intertitle>div{animation:none}
   .ultmeter b{font-size:11px;letter-spacing:1px}
   .ultmeter span{width:min(38vw,220px);height:14px}
   .message{bottom:max(64px,calc(env(safe-area-inset-bottom,0px) + 60px));font-size:11px;padding:3px 10px;max-width:70vw}
-  .centerpanel{top:50%;max-height:calc(100dvh - max(16px,calc(env(safe-area-inset-top,0px) + env(safe-area-inset-bottom,0px) + 12px)));overflow-y:auto;-webkit-overflow-scrolling:touch;padding:14px 22px;width:min(520px,calc(100vw - max(24px,calc(env(safe-area-inset-left,0px) + env(safe-area-inset-right,0px) + 16px))))}
+  .centerpanel{left:50%;top:50%;transform:translate(-50%,-50%);margin:0;max-height:calc(100dvh - max(16px,calc(env(safe-area-inset-top,0px) + env(safe-area-inset-bottom,0px) + 12px)));overflow-y:auto;-webkit-overflow-scrolling:touch;padding:14px 22px;width:min(520px,calc(100vw - max(24px,calc(env(safe-area-inset-left,0px) + env(safe-area-inset-right,0px) + 16px))))}
   .centerpanel h2{font-size:clamp(20px,5.2vh,26px);margin:4px 0 6px;line-height:1.05;letter-spacing:-1px}
   .centerpanel p{font-size:12px;line-height:1.35;margin:4px 0 8px;max-width:100%}
   .centerpanel .buttons{margin-top:8px;gap:8px;flex-wrap:wrap}
