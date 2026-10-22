@@ -39,6 +39,38 @@ html[data-reduced-motion=true] .intertitle>div{animation:none}
 .ultmeter i{display:block;height:100%;background:linear-gradient(#fff6b8,#ffd400 45%,#e6b800);transition:width .1s linear}
 @media(max-width:650px){.progress{top:130px}.ultmeter{top:176px}.pause{flex-shrink:0}.hudbox{min-width:0}.intertitle>div{padding:20px 16px}}
 @media(max-height:550px){.hud{padding:10px 16px}.hudbox{padding:8px 12px}.hearts{font-size:20px}.score{font-size:24px}.progress{top:110px}.ultmeter{top:154px}.message{bottom:108px;max-width:70vw}.intertitle>div{padding:14px 24px}}
+@media(max-height:450px){
+  .hud{padding:max(6px,env(safe-area-inset-top,0px)) max(10px,env(safe-area-inset-right,0px)) 0 max(10px,env(safe-area-inset-left,0px));gap:6px}
+  .hudbox{padding:6px 10px;border-radius:6px}
+  .hudbox .small{font-size:10px;line-height:1.2}
+  .hearts{font-size:18px;letter-spacing:2px}
+  .energy{width:90px;height:5px;margin-top:4px}
+  .score{font-size:20px}
+  .pause{width:44px;height:44px;font-size:18px;min-width:44px;min-height:44px;flex-shrink:0}
+  .progress{top:max(48px,calc(env(safe-area-inset-top,0px) + 44px));font-size:11px;padding:3px 10px;border-radius:12px}
+  .ultmeter{top:max(46px,calc(env(safe-area-inset-top,0px) + 42px));padding:3px 10px;gap:6px}
+  .ultmeter b{font-size:11px;letter-spacing:1px}
+  .ultmeter span{width:min(38vw,220px);height:14px}
+  .message{bottom:max(64px,calc(env(safe-area-inset-bottom,0px) + 60px));font-size:11px;padding:3px 10px;max-width:70vw}
+  .centerpanel{top:50%;max-height:calc(100dvh - max(16px,calc(env(safe-area-inset-top,0px) + env(safe-area-inset-bottom,0px) + 12px)));overflow-y:auto;-webkit-overflow-scrolling:touch;padding:14px 22px;width:min(520px,calc(100vw - max(24px,calc(env(safe-area-inset-left,0px) + env(safe-area-inset-right,0px) + 16px))))}
+  .centerpanel h2{font-size:clamp(20px,5.2vh,26px);margin:4px 0 6px;line-height:1.05;letter-spacing:-1px}
+  .centerpanel p{font-size:12px;line-height:1.35;margin:4px 0 8px;max-width:100%}
+  .centerpanel .buttons{margin-top:8px;gap:8px;flex-wrap:wrap}
+  .centerpanel .buttons button{min-height:44px;padding:10px 16px;font-size:13px;box-shadow:2px 2px 0 #202320}
+  .levels{gap:8px;margin-top:8px}
+  .level{padding:8px 12px;min-height:44px}
+  .level span{font-size:12px;line-height:1.2}
+  .level small{font-size:10px}
+  .callout{font-size:clamp(14px,4vh,22px);padding:4px 8px;max-width:70vw}
+  .callout.combo{font-size:clamp(16px,4.5vh,26px)}
+  .intertitle>div{padding:12px 18px;max-height:calc(100dvh - 32px)}
+  .intertitle b{font-size:clamp(18px,5.5vh,28px);margin:6px 0}
+  .intertitle small{font-size:11px}
+  .intertitle.dialog b{font-size:clamp(16px,4.2vh,22px);margin:8px auto 4px}
+  .iris>div{font-size:clamp(18px,6vh,32px);padding:10px 18px}
+  .panhint{width:26px;padding:6px 0;font-size:13px;border-radius:13px}
+  .settings{top:auto;bottom:max(8px,env(safe-area-inset-bottom,0px));left:auto;right:max(10px,env(safe-area-inset-right,0px))}
+}
 /* Wide-level edge hints: quiet chevrons while the street continues; a count of bullies off-screen; red pulse on a wind-up. */
 .panhint{position:absolute;top:50%;transform:translateY(-50%);display:grid;place-items:center;gap:2px;width:34px;padding:10px 0;border:2px solid #222;border-radius:18px;background:#f4f1e8;color:#151715;font-weight:900;font-size:16px;opacity:0;transition:opacity .25s;pointer-events:none}
 .panhint.left{left:8px}.panhint.right{right:8px}

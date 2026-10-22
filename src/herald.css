@@ -57,3 +57,14 @@
   .hd-card{left:-10%;top:3%;max-width:72%;font-size:18px}
   .hd-skip{top:auto;bottom:18px;right:18px}
 }
+@media (max-height:450px){
+  .hd-stage{--hw:108vh;left:10%;bottom:-5vh}
+  .hd-flyer,.hd-flyer[data-art=wide]{width:min(46vw,310px);right:max(-30%,calc(env(safe-area-inset-right,0px) - 24%));top:2%}
+  .hd-text,.hd-flyer[data-art=wide] .hd-text{inset:4% 6%;padding:6px;gap:2px}
+  .hd-text h3,.hd-flyer[data-art=wide] .hd-text h3{font-size:clamp(16px,6cqw,20px);margin-bottom:.1em}
+  .hd-text p,.hd-flyer[data-art=wide] .hd-text p{font-size:clamp(12px,4.6cqw,15px);line-height:1.16}
+  .hd-text small,.hd-flyer[data-art=wide] .hd-text small{font-size:max(10px,2.8cqw);margin-top:.25em}
+  .hd-card{left:max(-6%,calc(env(safe-area-inset-left,0px) - 10px));top:2%;max-width:68%;font-size:clamp(13px,2.8vh,16px);padding:.3em .6em}
+  .hd-skip{top:auto;bottom:max(10px,env(safe-area-inset-bottom,0px));right:max(14px,env(safe-area-inset-right,0px));padding:8px 14px;font-size:13px;min-height:44px}
+  .hd-skip small{font-size:10px;margin-top:2px}
+}
