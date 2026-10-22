@@ -58,3 +58,14 @@ html[data-reduced-motion=true] .intertitle>div{animation:none}
 @keyframes irisCard{0%,18%{opacity:0;transform:scale(.6) rotate(-4deg)}30%{opacity:1;transform:scale(1.08) rotate(2deg)}40%,70%{opacity:1;transform:scale(1) rotate(-1deg)}84%,100%{opacity:0;transform:scale(.8)}}
 [data-reduced-motion="true"] .iris{animation:none;--iris:150%;background:none}
 [data-reduced-motion="true"] .iris>div{animation:none;opacity:1}
+.orientation-overlay{position:fixed;inset:0;z-index:99;background:rgba(18,22,18,.92);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);display:flex;align-items:center;justify-content:center;padding:max(20px,env(safe-area-inset-top,0px)) max(20px,env(safe-area-inset-right,0px)) max(20px,env(safe-area-inset-bottom,0px)) max(20px,env(safe-area-inset-left,0px));pointer-events:auto}
+.orientation-overlay[hidden]{display:none!important}
+.orientation-card{background:#eeece2f5;border:3px solid #202320;border-radius:8px;box-shadow:8px 8px 0 #202320;padding:28px 24px;max-width:min(380px,92vw);text-align:center;display:flex;flex-direction:column;align-items:center;color:#202320}
+.orientation-icon{width:64px;height:64px;border-radius:50%;background:#202320;display:grid;place-items:center;margin-bottom:14px;animation:rotatePhone 2.2s ease-in-out infinite alternate}
+.orientation-card h2{font-size:clamp(26px,6.5vw,36px);letter-spacing:-1.5px;line-height:1.05;margin:12px 0 10px;font-weight:950}
+.orientation-card h2 em{font-style:normal;color:#f359a4;-webkit-text-stroke:1.5px #202320;text-shadow:2px 2px 0 #202320}
+.orientation-card p{font-size:15px;line-height:1.45;max-width:300px;margin:0 0 16px;font-weight:600}
+.orientation-card .buttons button{min-height:44px;padding:12px 26px;font-size:14px}
+@keyframes rotatePhone{0%,25%{transform:rotate(0deg)}75%,100%{transform:rotate(-90deg)}}
+html[data-reduced-motion=true] .orientation-icon{animation:none!important}
+

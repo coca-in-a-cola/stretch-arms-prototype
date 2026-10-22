@@ -19,8 +19,30 @@ let saved = loadProgress(() => null);
 try { saved = loadProgress(k => localStorage.getItem(k)); } catch { /* storage blocked: fresh progress */ }
 const game = new Game(saved, p => { try { localStorage.setItem(PROGRESS_KEY, JSON.stringify(p)); } catch { game.message = 'Сохранение недоступно в этом браузере.'; } });
 const app = document.querySelector<HTMLDivElement>('#app')!;
-app.innerHTML = '<canvas id="scene" aria-label="Трёхмерный двор и задиры"></canvas><div id="film" aria-hidden="true"></div><div id="herald" hidden></div><canvas id="arm" aria-hidden="true"></canvas><div id="ui"></div>';
+app.innerHTML = '<canvas id="scene" aria-label="Трёхмерный двор и задиры"></canvas><div id="film" aria-hidden="true"></div><div id="herald" hidden></div><canvas id="arm" aria-hidden="true"></canvas><div id="ui"></div><div id="orientation-prompt" class="orientation-overlay" hidden></div>';
 const ui = document.querySelector<HTMLDivElement>('#ui')!;
+const orientationOverlay = document.querySelector<HTMLDivElement>('#orientation-prompt');
+let portraitBypassed = false;
+function checkOrientation() {
+  if (!orientationOverlay) return;
+  const isPortrait = window.innerHeight > window.innerWidth;
+  const show = isPortrait && !portraitBypassed;
+  if (!show) {
+    orientationOverlay.hidden = true;
+    orientationOverlay.innerHTML = '';
+    return;
+  }
+  if (orientationOverlay.hidden || !orientationOverlay.querySelector('#portrait-bypass')) {
+    orientationOverlay.hidden = false;
+    orientationOverlay.innerHTML = '<div class="orientation-card" role="dialog" aria-modal="true" aria-labelledby="orient-title"><div class="orientation-icon" aria-hidden="true"><svg viewBox="0 0 48 48" width="52" height="52"><rect x="13" y="7" width="22" height="34" rx="4" fill="none" stroke="#f4f1e8" stroke-width="3"/><line x1="20" y1="35" x2="28" y2="35" stroke="#f4f1e8" stroke-width="3" stroke-linecap="round"/><path d="M 37 15 A 13 13 0 0 1 37 31" fill="none" stroke="#c7f653" stroke-width="3" stroke-dasharray="4 2"/><polyline points="34,31 38,33 40,28" fill="none" stroke="#c7f653" stroke-width="3" stroke-linejoin="round"/></svg></div><div class="eyebrow" style="justify-content:center">ГОРИЗОНТАЛЬНЫЙ РЕЖИМ</div><h2 id="orient-title">ПОВЕРНИТЕ<br><em>УСТРОЙСТВО</em></h2><p>Пожалуйста, переверните устройство в горизонтальный режим</p><div class="buttons" style="justify-content:center"><button id="portrait-bypass" class="secondary" type="button">Продолжить</button></div></div>';
+    orientationOverlay.querySelector('#portrait-bypass')?.addEventListener('click', () => {
+      unlockAudio();
+      sound('ui');
+      portraitBypassed = true;
+      checkOrientation();
+    });
+  }
+}
 // Level-start briefing by the herald (once per level per session); touch wording if the player taps.
 game.briefings = true; game.touch = matchMedia('(pointer: coarse)').matches;
 addEventListener('pointerdown', e => { game.touch = e.pointerType === 'touch'; }, { capture: true });
@@ -648,7 +670,11 @@ function resize() {
   camera.updateMatrixWorld();
   const dpr = Math.min(devicePixelRatio, 2); armCanvas.width = Math.round(innerWidth * dpr); armCanvas.height = Math.round(innerHeight * dpr);
 }
-addEventListener('resize', () => { resize(); measureControls(); });
+addEventListener('resize', () => { resize(); measureControls(); checkOrientation(); });
+addEventListener('orientationchange', () => { resize(); measureControls(); checkOrientation(); });
+if (window.visualViewport) {
+  window.visualViewport.addEventListener('resize', () => { resize(); measureControls(); checkOrientation(); });
+}
 
 function updateCrosshair() {
   const crosshair = document.querySelector<HTMLElement>('.crosshair');
@@ -1152,6 +1178,7 @@ function renderUi() {
   syncActors(runtime);
   if (mode !== 'play') { ui.insertAdjacentHTML('beforeend', settingsUi()); bindSettings(renderUi); }
   measureControls();
+  checkOrientation();
 }
 
 function toScreen(p: Vec3) { const v = new THREE.Vector3(p.x, p.y, p.z).project(camera); return { x: (v.x + 1) / 2 * innerWidth, y: (1 - v.y) / 2 * innerHeight }; }
@@ -1461,7 +1488,7 @@ function resizeCameraShake(dt: number) {
   camera.updateMatrixWorld();
 }
 
-resize(); renderUi(); frame();
+resize(); checkOrientation(); renderUi(); frame();
 
 if (import.meta.env.DEV) {
   Object.assign(window, {
@@ -1491,6 +1518,9 @@ if (import.meta.env.DEV) {
       toScreen: (p: Vec3) => toScreen(p),
       hazards: () => [...hazardViews.entries()].map(([id, v]) => ({ id, group: v.group.position.toArray(), obj: v.obj.position.y, shadow: v.shadow.scale.toArray(), visible: v.group.visible, parent: !!v.group.parent?.parent })),
       strikes: () => strikes.slice(),
+      isPortrait: () => window.innerHeight > window.innerWidth,
+      isPortraitBypassed: () => portraitBypassed,
+      bypassPortrait: () => { portraitBypassed = true; checkOrientation(); },
       webgl: () => ({ calls: renderer.info.render.calls, triangles: renderer.info.render.triangles, context: renderer.getContext().getParameter(renderer.getContext().VERSION) }),
     },
   });
