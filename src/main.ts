@@ -661,14 +661,21 @@ const strikes: { action: Action; outcome: Outcome; kind: string; id: number | st
 
 /** Horizontal camera pan along wide levels (world units; 0 = centre). Aim always raycasts from the real camera. */
 let pan = 0, panVel = 0;
+function viewportSize() {
+  const vv = window.visualViewport;
+  const w = vv ? Math.round(vv.width) : window.innerWidth;
+  const h = vv ? Math.round(vv.height) : window.innerHeight;
+  return { w: Math.max(1, w), h: Math.max(1, h) };
+}
 function resize() {
-  renderer.setSize(innerWidth, innerHeight);
-  const rig = cameraFor(innerWidth, innerHeight, game.mode === 'menu' || game.mode === 'select' ? 0 : pan);
-  camera.aspect = innerWidth / innerHeight; camera.fov = rig.fov; camera.updateProjectionMatrix();
+  const { w, h } = viewportSize();
+  renderer.setSize(w, h);
+  const rig = cameraFor(w, h, game.mode === 'menu' || game.mode === 'select' ? 0 : pan);
+  camera.aspect = w / h; camera.fov = rig.fov; camera.updateProjectionMatrix();
   camera.position.set(rig.position.x, rig.position.y, rig.position.z); camera.lookAt(rig.look.x, rig.look.y, rig.look.z);
-  if (game.mode === 'menu' || game.mode === 'select') { camera.position.x -= innerWidth < 650 ? 0 : 1.2; camera.lookAt(rig.look.x - (innerWidth < 650 ? 0 : 1.8), rig.look.y, rig.look.z); }
+  if (game.mode === 'menu' || game.mode === 'select') { camera.position.x -= w < 650 ? 0 : 1.2; camera.lookAt(rig.look.x - (w < 650 ? 0 : 1.8), rig.look.y, rig.look.z); }
   camera.updateMatrixWorld();
-  const dpr = Math.min(devicePixelRatio, 2); armCanvas.width = Math.round(innerWidth * dpr); armCanvas.height = Math.round(innerHeight * dpr);
+  const dpr = Math.min(devicePixelRatio || 1, 2); armCanvas.width = Math.round(w * dpr); armCanvas.height = Math.round(h * dpr);
 }
 addEventListener('resize', () => { resize(); measureControls(); checkOrientation(); });
 addEventListener('orientationchange', () => { resize(); measureControls(); checkOrientation(); });
@@ -678,7 +685,11 @@ if (window.visualViewport) {
 
 function updateCrosshair() {
   const crosshair = document.querySelector<HTMLElement>('.crosshair');
-  if (crosshair) { crosshair.style.left = (pointer.x + 1) * 50 + '%'; crosshair.style.top = (1 - pointer.y) * 50 + '%'; }
+  if (crosshair) {
+    const rect = canvas.getBoundingClientRect();
+    crosshair.style.left = Math.round(rect.left + (pointer.x + 1) * 0.5 * rect.width) + 'px';
+    crosshair.style.top = Math.round(rect.top + (1 - pointer.y) * 0.5 * rect.height) + 'px';
+  }
 }
 const motion = () => !reducedMotion();
 function currentHittables() { return hittables(game.level, game.actors, motion(), levelScenery[game.level]); }
@@ -763,13 +774,17 @@ function drainEvents(at?: { x: number; y: number }) {
 
 /** Where the glove is in a throw's whip: a short way from its rest spot toward the aim. */
 function whipSpot(s: Swing): Pt {
-  const W = innerWidth, H = innerHeight, rest = restPose(1, W, H, avoidRect).glove; // the prop is held in the right hand
-  return { x: rest.x + (s.spot.x * W - rest.x) * WHIP.reach, y: rest.y + (s.spot.y * H - rest.y) * WHIP.reach - H * .05 };
+  const rect = canvas.getBoundingClientRect();
+  const W = rect.width, H = rect.height, rest = restPose(1, W, H, avoidRect).glove;
+  return { x: rect.left + rest.x + (s.spot.x * W - rest.x) * WHIP.reach, y: rect.top + rest.y + (s.spot.y * H - rest.y) * WHIP.reach - H * .05 };
 }
-/** Let go: the prop leaves the glove (at its screen spot, ~1.7 m in front of the camera) and flies at the aim point. */
 function release(s: Swing) {
   s.launched = true; s.resolved = true;
-  const g = whipSpot(s); raycaster.setFromCamera(new THREE.Vector2(g.x / innerWidth * 2 - 1, 1 - g.y / innerHeight * 2), camera);
+  const g = whipSpot(s);
+  const rect = canvas.getBoundingClientRect();
+  const ndcX = ((g.x - rect.left) / (rect.width || 1)) * 2 - 1;
+  const ndcY = -(((g.y - rect.top) / (rect.height || 1)) * 2 - 1);
+  raycaster.setFromCamera(new THREE.Vector2(ndcX, ndcY), camera);
   const from = raycaster.ray.at(1.7, new THREE.Vector3());
   const f = game.launch({ x: from.x, y: from.y, z: from.z }, s.shot.point);
   s.outcome = 'throw'; strikes.push({ action: 'grab', outcome: 'throw', kind: 'flight', id: f?.id ?? null, staminaBefore: s.staminaBefore, staminaAfter: s.staminaAfter }); if (strikes.length > 20) strikes.shift();
@@ -1071,11 +1086,19 @@ let mouseX = -1, edgeHold = 0;
 const DRAG_PX = 14, EDGE = .07, PAN_SPEED = 11;
 let drag: { id: number; x: number; y: number; pan: number; moved: boolean } | null = null;
 const canPan = () => game.mode === 'play' && LEVELS[game.level].pan > 0;
-/** World units per screen pixel at the mid-ground depth, so a drag moves the street under the finger. */
-function worldPerPx() { const d = camera.position.z + 2, half = Math.tan(camera.fov * Math.PI / 360) * d * camera.aspect; return 2 * half / innerWidth; }
+function worldPerPx() {
+  const rect = canvas.getBoundingClientRect();
+  const d = camera.position.z + 2, half = Math.tan(camera.fov * Math.PI / 360) * d * camera.aspect;
+  return 2 * half / Math.max(1, rect.width);
+}
 function panDirection() {
   let dir = (panKeys.has('ArrowRight') || panKeys.has('KeyD') ? 1 : 0) - (panKeys.has('ArrowLeft') || panKeys.has('KeyA') ? 1 : 0);
-  if (!dir && mouseX >= 0) { const f = mouseX / innerWidth; if (f < EDGE) dir = -(1 - f / EDGE); else if (f > 1 - EDGE) dir = (f - (1 - EDGE)) / EDGE; }
+  if (!dir && mouseX >= 0) {
+    const rect = canvas.getBoundingClientRect();
+    const f = (mouseX - rect.left) / Math.max(1, rect.width);
+    if (f < EDGE) dir = -(1 - f / EDGE);
+    else if (f > 1 - EDGE) dir = (f - (1 - EDGE)) / EDGE;
+  }
   return dir;
 }
 function updatePan(dt: number) {
@@ -1087,7 +1110,13 @@ function updatePan(dt: number) {
   panVel += (want - panVel) * k;
   if (Math.abs(panVel) > .01) pan = clampPan(game.level, pan + panVel * dt);
 }
-function setPointer(e: PointerEvent) { pointer.set((e.clientX / innerWidth) * 2 - 1, -(e.clientY / innerHeight) * 2 + 1); updateCrosshair(); }
+function setPointer(e: PointerEvent) {
+  const rect = canvas.getBoundingClientRect();
+  const ndcX = ((e.clientX - rect.left) / (rect.width || 1)) * 2 - 1;
+  const ndcY = -(((e.clientY - rect.top) / (rect.height || 1)) * 2 - 1);
+  pointer.set(THREE.MathUtils.clamp(ndcX, -1, 1), THREE.MathUtils.clamp(ndcY, -1, 1));
+  updateCrosshair();
+}
 canvas.addEventListener('pointermove', e => {
   if (e.pointerType === 'mouse') mouseX = e.clientX;
   if (drag && e.pointerId === drag.id) {
@@ -1181,16 +1210,24 @@ function renderUi() {
   checkOrientation();
 }
 
-function toScreen(p: Vec3) { const v = new THREE.Vector3(p.x, p.y, p.z).project(camera); return { x: (v.x + 1) / 2 * innerWidth, y: (1 - v.y) / 2 * innerHeight }; }
+function toScreen(p: Vec3) {
+  const v = new THREE.Vector3(p.x, p.y, p.z).project(camera);
+  const rect = canvas.getBoundingClientRect();
+  return { x: rect.left + (v.x + 1) * 0.5 * rect.width, y: rect.top + (1 - v.y) * 0.5 * rect.height };
+}
 /**
  * A screen point that free-aim would actually resolve to this actor right now (hitbox sampled top-down,
  * occlusion respected). Published for accessibility tooling and tests; null when fully behind cover.
  */
 function clickablePoint(t: Actor) {
   const c = bodyOf(t.kind, t.who); const p = pose(game.level, t, motion()); const [l, r, b, tp] = t.kind === 'enemy' && t.skin ? SKIN_INSET[t.skin] : c.inset;
+  const rect = canvas.getBoundingClientRect();
   for (const fy of [.8, .65, .9, .5, .35]) for (const fx of [.5, .38, .62]) {
     const world = { x: p.x - c.w / 2 + c.w * (l + (r - l) * fx), y: p.y + c.h * (b + (tp - b) * fy), z: p.z };
-    const s = toScreen(world); const shot = shotAt(new THREE.Vector2(s.x / innerWidth * 2 - 1, 1 - s.y / innerHeight * 2));
+    const s = toScreen(world);
+    const ndcX = ((s.x - rect.left) / (rect.width || 1)) * 2 - 1;
+    const ndcY = -(((s.y - rect.top) / (rect.height || 1)) * 2 - 1);
+    const shot = shotAt(new THREE.Vector2(ndcX, ndcY));
     if (shot.id === t.id) return { x: Math.round(s.x), y: Math.round(s.y) };
   }
   return null;
@@ -1270,10 +1307,12 @@ function startUlt() {
 }
 function landingPoint() {
   const c = landingCover;
-  // The hat flies on an arc and must come down ON the slab: aim at the counter's top face, not its front.
+  const rect = canvas.getBoundingClientRect();
   for (const fx of [.55, .42, .68, .3, .8]) for (const fz of [.5, .3, .7]) {
     const sp = toScreen({ x: c.min.x + (c.max.x - c.min.x) * fx, y: c.max.y, z: c.min.z + (c.max.z - c.min.z) * fz });
-    const shot = shotAt(new THREE.Vector2(sp.x / innerWidth * 2 - 1, 1 - sp.y / innerHeight * 2));
+    const ndcX = ((sp.x - rect.left) / (rect.width || 1)) * 2 - 1;
+    const ndcY = -(((sp.y - rect.top) / (rect.height || 1)) * 2 - 1);
+    const shot = shotAt(new THREE.Vector2(ndcX, ndcY));
     if (shot.kind === 'cover' && shot.point.y >= c.max.y - 1e-3 && onLanding(game.level, shot.id, shot.point)) return { x: Math.round(sp.x), y: Math.round(sp.y) };
   }
   return null;
@@ -1382,7 +1421,8 @@ function drawStream(g: CanvasRenderingContext2D, W: number, H: number, time: num
 
 let lastDraw = 0;
 function drawArm(time: number) {
-  const W = innerWidth, H = innerHeight, g = armCtx, dpr = armCanvas.width / Math.max(1, W), dt = Math.max(0, Math.min(.05, time - lastDraw)); lastDraw = time;
+  const rect = canvas.getBoundingClientRect();
+  const W = rect.width, H = rect.height, g = armCtx, dpr = armCanvas.width / Math.max(1, W), dt = Math.max(0, Math.min(.05, time - lastDraw)); lastDraw = time;
   g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(0, 0, armCanvas.width, armCanvas.height);
   if (game.mode !== 'play' && game.mode !== 'pause') return;
   g.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -1481,7 +1521,8 @@ function frame() {
 }
 function resizeCameraShake(dt: number) {
   if (game.mode === 'menu' || game.mode === 'select') { placeSun(0); return; }
-  const rig = cameraFor(innerWidth, innerHeight, pan); placeSun(pan);
+  const { w, h } = viewportSize();
+  const rig = cameraFor(w, h, pan); placeSun(pan);
   rest.set(rig.position.x, rig.position.y, rig.position.z);
   if (shake > 0) { shake = Math.max(0, shake - dt * .9); camera.position.set(rest.x + (Math.random() - .5) * shake, rest.y + (Math.random() - .5) * shake, rest.z); }
   else camera.position.copy(rest);
@@ -1497,14 +1538,23 @@ if (import.meta.env.DEV) {
       /** Screen point that free-aim resolves to this actor right now (null if fully occluded). */
       project(id: number) { const t = game.actors.find(v => v.id === id); return t ? clickablePoint(t) : null; },
       /** Predict what a click at (x,y) would strike, using the same resolver the game uses. */
-      shotAt(x: number, y: number) { const s = shotAt(new THREE.Vector2(x / innerWidth * 2 - 1, 1 - y / innerHeight * 2)); return { kind: s.kind, id: s.id ?? null, distance: s.distance }; },
+      shotAt(x: number, y: number) {
+        const rect = canvas.getBoundingClientRect();
+        const ndcX = ((x - rect.left) / (rect.width || 1)) * 2 - 1;
+        const ndcY = -(((y - rect.top) / (rect.height || 1)) * 2 - 1);
+        const s = shotAt(new THREE.Vector2(ndcX, ndcY));
+        return { kind: s.kind, id: s.id ?? null, distance: s.distance };
+      },
       /** Sample the full sprite hitbox of an actor and report what each screen point would actually hit. */
       samples(id: number) {
         const t = game.actors.find(v => v.id === id); if (!t) return [];
         const c = bodyOf(t.kind, t.who), p = pose(game.level, t, motion()), [l, r, b, tp] = c.inset, out = [];
+        const rect = canvas.getBoundingClientRect();
         for (let fy = .05; fy < 1; fy += .1) for (let fx = .1; fx < 1; fx += .2) {
           const s = toScreen({ x: p.x - c.w / 2 + c.w * (l + (r - l) * fx), y: p.y + c.h * (b + (tp - b) * fy), z: p.z });
-          const shot = shotAt(new THREE.Vector2(s.x / innerWidth * 2 - 1, 1 - s.y / innerHeight * 2));
+          const ndcX = ((s.x - rect.left) / (rect.width || 1)) * 2 - 1;
+          const ndcY = -(((s.y - rect.top) / (rect.height || 1)) * 2 - 1);
+          const shot = shotAt(new THREE.Vector2(ndcX, ndcY));
           out.push({ x: Math.round(s.x), y: Math.round(s.y), kind: shot.kind, id: shot.id ?? null });
         }
         return out;
