@@ -12,13 +12,21 @@ html[data-reduced-motion=true] button:hover,html[data-reduced-motion=true] butto
 .callout.bad{color:#ff6b8f}
 @keyframes callout{0%{transform:translate(-50%,-50%) scale(.3) rotate(-8deg);opacity:0}18%{transform:translate(-50%,-50%) scale(1.15) rotate(-4deg);opacity:1}70%{transform:translate(-50%,-80%) scale(1) rotate(-3deg);opacity:1}100%{transform:translate(-50%,-120%) scale(.95) rotate(-3deg);opacity:0}}
 html[data-reduced-motion=true] .callout{animation:none!important;opacity:1}
-.progress,.message{background:#f4f1e8;color:#151715;border:2px solid #151715;border-radius:16px;padding:8px 14px;box-shadow:2px 2px 0 #151715;text-shadow:none;line-height:1.4;width:max-content;max-width:90vw;overflow-wrap:anywhere}
+.progress,.message{background:#fffdfa;color:#101410;border:2.5px solid #101410;border-radius:16px;padding:8px 14px;box-shadow:3px 3px 0 #101410;text-shadow:none;line-height:1.4;width:max-content;max-width:90vw;overflow-wrap:anywhere;font-weight:800}
 .progress{top:144px;font-size:12px;letter-spacing:1px}
 .message{left:50%;right:auto;transform:translateX(-50%);font-size:14px}
 .message:empty{display:none}
 .hud{align-items:flex-start}
-.hudbox .small{text-shadow:1px 1px 0 #fffbe8}
-.hearts{color:#b91d51;-webkit-text-stroke:1px #151715;paint-order:stroke fill}
+.hudbox{background:#fffdfa;border:2.5px solid #101410;box-shadow:3px 3px 0 #101410}
+.hudbox .small{color:#101410;font-weight:900;text-shadow:none;letter-spacing:1px}
+.score{color:#101410;text-shadow:none;font-weight:950}
+.energy{background:#2b2e2b;border:1.5px solid #101410}
+.hearts{color:#db144c;-webkit-text-stroke:1.5px #101410;paint-order:stroke fill;text-shadow:1px 1px 0 #fffdfa}
+.shade{background:rgba(14,18,14,.76);backdrop-filter:blur(5px);-webkit-backdrop-filter:blur(5px)}
+.centerpanel{background:#fffdfa;border:3px solid #101410;border-radius:8px;box-shadow:8px 8px 0 #101410;color:#101410}
+.centerpanel p{color:#101410;font-weight:600}
+.centerpanel .note{display:inline-block;background:#c7f653;color:#101410;border:1.5px solid #101410;border-radius:4px;padding:3px 8px;font-weight:900;font-size:11px;letter-spacing:1px;margin-bottom:6px}
+.pause{background:#fffdfa;border:2.5px solid #101410;border-radius:6px;box-shadow:3px 3px 0 #101410;font-weight:900;color:#101410}
 #arm{position:fixed;inset:0;width:100%;height:100%;display:block;pointer-events:none}
 #film{position:fixed;inset:0;pointer-events:none;background:radial-gradient(ellipse at center,transparent 58%,rgba(0,0,0,.34) 100%)}
 #film:after{content:'';position:absolute;inset:-64px;background-image:var(--grain);opacity:.06;mix-blend-mode:overlay;animation:grain .5s steps(4) infinite}
