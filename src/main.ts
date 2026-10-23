@@ -1280,6 +1280,7 @@ canvas.addEventListener('pointermove', e => {
         executeTouchThrow(throwSwipe);
         touchDrag = null;
         touchHistory.length = 0;
+        canvas.dataset.touching = 'false';
         return;
       }
     }
@@ -1309,9 +1310,11 @@ canvas.addEventListener('pointerdown', e => {
     touchDrag = { id: e.pointerId, currentX: e.clientX, currentY: e.clientY, prevX: e.clientX, prevY: e.clientY, moved: false };
     touchHistory.length = 0;
     touchHistory.push({ x: e.clientX, y: e.clientY, time: performance.now() / 1000 });
+    canvas.dataset.touching = 'true';
     setPointer(e);
     if (game.ultActive) return;
     sweepTouchSegment(e.clientX, e.clientY, e.clientX, e.clientY);
+    updateHud();
     return;
   }
   setPointer(e);
@@ -1328,6 +1331,8 @@ const endDrag = (e: PointerEvent) => {
     }
     touchDrag = null;
     touchHistory.length = 0;
+    canvas.dataset.touching = 'false';
+    updateHud();
   }
   if (drag && e.pointerId === drag.id) {
     const tap = !drag.moved; drag = null;
@@ -1341,6 +1346,8 @@ canvas.addEventListener('pointercancel', e => {
   if (touchDrag && e.pointerId === touchDrag.id) {
     touchDrag = null;
     touchHistory.length = 0;
+    canvas.dataset.touching = 'false';
+    updateHud();
   }
   if (drag && e.pointerId === drag.id) drag = null;
 });
@@ -1435,7 +1442,7 @@ function updateHud() {
   const enemies = game.actors.filter(t => t.kind === 'enemy');
   const labels = enemies.map(t => (t.x < -.5 ? 'слева' : t.x > .5 ? 'справа' : 'в центре') + (t.layer === 'foreground' ? ' (за укрытием рядом)' : t.layer === 'background' ? ' (в окне)' : ' (за забором)'));
   canvas.setAttribute('aria-label', `Уровень ${game.level}. Задиры: ${labels.join(', ') || 'нет'}. Наведи прицел, затем нажми Удар.`);
-  const aim = JSON.stringify(game.mode === 'play' ? game.actors.map(t => ({ id: t.id, kind: t.kind, layer: t.layer, frame: views.get(t.id)?.frame ?? null, at: t.age >= .4 ? clickablePoint(t) : null })) : []);
+  const aim = JSON.stringify(game.mode === 'play' ? game.actors.map(t => ({ id: t.id, kind: t.kind, layer: t.layer, frame: views.get(t.id)?.frame ?? null, at: (t.kind !== 'enemy' || t.age >= .4) ? clickablePoint(t) : null })) : []);
   if (aim !== lastAim) { lastAim = aim; canvas.dataset.aim = aim; }
   const set = (id: string, text: string) => { const el = document.getElementById(id); if (el) el.textContent = text; };
   set('hearts', '♥'.repeat(Math.max(0, game.hp)) + '♡'.repeat(5 - Math.max(0, game.hp)));
@@ -1450,6 +1457,14 @@ function updateHud() {
   if (canvas.dataset.zone !== zone) canvas.dataset.zone = zone;
   const ult = JSON.stringify({ phase: game.ult.phase, meter: +game.ult.meter.toFixed(2), tip: stream && game.ult.phase === 'pour' ? { x: Math.round(stream.tip.x * innerWidth), y: Math.round(stream.tip.y * innerHeight) } : null });
   if (canvas.dataset.ult !== ult) canvas.dataset.ult = ult;
+  const held = game.held ?? '';
+  if (canvas.dataset.held !== held) canvas.dataset.held = held;
+  const touching = String(!!touchDrag);
+  if (canvas.dataset.touching !== touching) canvas.dataset.touching = touching;
+  const lastStrike = strikes.length > 0 ? JSON.stringify(strikes[strikes.length - 1]) : '';
+  if (canvas.dataset.strike !== lastStrike) canvas.dataset.strike = lastStrike;
+  const flights = String(game.flights.length);
+  if (canvas.dataset.flights !== flights) canvas.dataset.flights = flights;
   if (game.touch && (!game.message || game.message.includes('Прицел стоит') || game.message.includes('Двор ждёт'))) {
     game.message = game.held ? 'Свайп снизу вверх — бросок!' : 'Веди пальцем — бей задир! Через предмет — захват.';
   }
@@ -1620,6 +1635,7 @@ function drawStream(g: CanvasRenderingContext2D, W: number, H: number, time: num
 }
 
 let lastDraw = 0;
+const drawnArms = { left: { mode: 'rest', x: 0, y: 0, open: false, item: '' }, right: { mode: 'rest', x: 0, y: 0, open: false, item: '' } };
 function drawArm(time: number) {
   const rect = canvas.getBoundingClientRect();
   const W = rect.width, H = rect.height, g = armCtx, dpr = armCanvas.width / Math.max(1, W), dt = Math.max(0, Math.min(.05, time - lastDraw)); lastDraw = time;
@@ -1654,13 +1670,16 @@ function drawArm(time: number) {
     // While the herald talks the fists rest low at the corners so they never cover the flyer text.
     const bob = (motion() ? Math.sin(time * 2.4 + (side > 0 ? 0 : 1.3)) * H * .006 : 0) + (game.briefing ? armMetrics(W, H).r * 1.7 : 0);
     let arm = restPose(side, W, H, avoid, bob);
+    let armMode = 'rest';
     if (s && side === active) {
       arm = s.throwing ? punchPose(side, W, H, whipSpot(s), k, WHIP, { throwing: true, avoid }) : punchPose(side, W, H, spot, k, { arrive: ARRIVE, release: RELEASE }, { depth: 6.5 / Math.max(3, s.shot.distance), grab: s.action === 'grab', avoid });
+      armMode = s.throwing ? 'throw' : 'swing';
     } else if (touchDrag && !s) {
       const strikeSide = game.held ? -1 : sideFor({ x: touchDrag.currentX - rect.left, y: touchDrag.currentY - rect.top }, W);
       if (side === strikeSide) {
         const touchSpot = { x: touchDrag.currentX - rect.left, y: touchDrag.currentY - rect.top };
         arm = punchPose(side, W, H, touchSpot, 0.5, { arrive: 0.1, release: 0.9 }, { depth: 1, avoid: null });
+        armMode = 'touch';
       }
     }
     const holding = game.held && side === 1 && !(s && s.throwing && active === 1);
@@ -1673,6 +1692,9 @@ function drawArm(time: number) {
     }
     inkArm(g, arm, ink, rim);
     const item = holding ? game.held : s && s.throwing && s.held && side === active && !s.launched ? s.held : null;
+    const drawn = drawnArms[side === 1 ? 'right' : 'left'];
+    drawn.mode = armMode;
+    drawn.x = arm.glove.x; drawn.y = arm.glove.y; drawn.open = arm.open; drawn.item = item ?? '';
     if (item) {
       const img = textures[item].image as CanvasImageSource, h = arm.r * 2.2, w = h * BODY[item].w / BODY[item].h;
       g.save(); g.translate(arm.glove.x, arm.glove.y - arm.r * .5); g.rotate(motion() ? Math.sin(time * 2) * .07 : 0); g.drawImage(img, -w / 2, -h * .8, w, h); g.restore();
@@ -1738,6 +1760,19 @@ function resizeCameraShake(dt: number) {
 }
 
 resize(); checkOrientation(); renderUi(); frame();
+
+Object.assign(window, {
+  __interaction: {
+    actors: () => game.actors.map(t => ({ id: t.id, kind: t.kind, at: clickablePoint(t), center: toScreen(pose(game.level, t, motion())), world: pose(game.level, t, motion()) })),
+    shot(x: number, y: number) {
+      const rect = canvas.getBoundingClientRect();
+      const s = shotAt(new THREE.Vector2((x - rect.left) / rect.width * 2 - 1, 1 - (y - rect.top) / rect.height * 2));
+      return { kind: s.kind, id: s.id ?? null };
+    },
+    arms: () => drawnArms,
+    flights: () => game.flights.map(f => ({ id: f.id, kind: f.kind, pos: { ...f.pos }, vel: { ...f.vel }, age: f.age, struck: f.struck })),
+  },
+});
 
 if (import.meta.env.DEV) {
   Object.assign(window, {

@@ -1,3 +1,5 @@
+import json
+import math
 import os
 import socket
 from contextlib import contextmanager
@@ -63,7 +65,7 @@ def test_portrait_prompt(browser, url: str, errors: list[str]) -> None:
     assert box and box['height'] >= 44, f'Bypass button height: {box}'
     assert 'Продолжить' in bypass_btn.inner_text()
 
-    page.screenshot(path=str(EVIDENCE / 'mobile-portrait-prompt.png'))
+    page.screenshot(path=str(EVIDENCE / 'sa026c-portrait-prompt.png'))
 
     bypass_btn.tap()
     page.locator('#orientation-prompt').wait_for(state='hidden', timeout=5000)
@@ -207,6 +209,121 @@ def test_desktop_regression(browser, url: str, errors: list[str]) -> None:
     ctx.close()
 
 
+def test_touch_prop_grab_and_throw(browser, url: str, errors: list[str]) -> None:
+    ctx = browser.new_context(viewport={'width': 844, 'height': 390}, is_mobile=True, has_touch=True)
+    page = ctx.new_page()
+    page.on('pageerror', lambda e: errors.append(str(e)))
+    page.on('console', lambda m: errors.append(m.text) if m.type == 'error' else None)
+
+    page.goto(url)
+    page.locator('#start').wait_for(timeout=20000)
+    page.locator('#start').tap()
+    page.locator('#level1').tap()
+    skip_briefing_if_active(page, touch=True)
+
+    page.wait_for_function('document.querySelector("#app").dataset.mode === "play"', timeout=10000)
+    assert page.locator('#punch').count() == 0 or not page.locator('#punch').is_visible(), 'Punch button must be removed on mobile'
+    assert page.locator('#grab').count() == 0 or not page.locator('#grab').is_visible(), 'Grab button must be removed on mobile'
+
+    initial_held = page.evaluate('document.querySelector("#scene").dataset.held || ""')
+    assert initial_held == '', f'Initially held should be empty, got {initial_held}'
+
+    prop = page.wait_for_function('''() => {
+        const p = window.__interaction.actors().find(t =>
+            ['whiskey', 'mug', 'eggs', 'bottle', 'keg', 'stool', 'spittoon', 'shaker'].includes(t.kind)
+            && t.at && t.at.x > 32 && t.at.x < innerWidth - 32 && t.at.y > 0 && t.at.y < innerHeight
+            && window.__interaction.shot(t.at.x, t.at.y).id === t.id);
+        if (!p) return false;
+        const canvas = document.querySelector("#scene");
+        for (const [type, x] of [['pointerdown', p.at.x - 32], ['pointermove', p.at.x], ['pointerup', p.at.x]])
+            canvas.dispatchEvent(new PointerEvent(type, { pointerId: 10, pointerType: 'touch', clientX: x, clientY: p.at.y, bubbles: true }));
+        return p;
+    }''', timeout=10000).json_value()
+
+    page.wait_for_function('document.querySelector("#scene").dataset.held !== ""', timeout=5000)
+    held_prop = page.evaluate('document.querySelector("#scene").dataset.held')
+    assert held_prop == prop['kind'], f'Expected held {prop["kind"]}, got {held_prop}'
+
+    page.wait_for_function('window.__interaction.arms().right.item !== ""')
+    arms = page.evaluate('window.__interaction.arms()')
+    assert arms['right']['item'] == held_prop and arms['right']['open'], f'Right arm must draw held item, got {arms}'
+
+    enemy = page.wait_for_function('''() => {
+        const e = window.__interaction.actors().find(t => t.kind === 'enemy' && t.at
+            && t.at.x > 32 && t.at.x < innerWidth - 32 && t.at.y > 0 && t.at.y < innerHeight
+            && window.__interaction.shot(t.at.x, t.at.y).id === t.id);
+        if (!e) return false;
+        const canvas = document.querySelector("#scene");
+        canvas.dispatchEvent(new PointerEvent('pointerdown', { pointerId: 11, pointerType: 'touch', clientX: e.at.x - 32, clientY: e.at.y, bubbles: true }));
+        canvas.dispatchEvent(new PointerEvent('pointermove', { pointerId: 11, pointerType: 'touch', clientX: e.at.x, clientY: e.at.y, bubbles: true }));
+        return { ...e, strike: JSON.parse(canvas.dataset.strike || '{}') };
+    }''', timeout=10000).json_value()
+    last_strike = enemy['strike']
+    assert last_strike.get('action') == 'punch' and last_strike.get('outcome') == 'hit' and last_strike.get('id') == enemy['id'], f'Drag across enemy must hit with punch, got {last_strike}'
+    page.wait_for_function('window.__interaction.arms().left.mode === "touch"')
+    arms = page.evaluate('window.__interaction.arms()')
+    assert arms['left']['item'] == '' and not arms['left']['open'], arms
+    assert math.hypot(arms['left']['x'] - enemy['at']['x'], arms['left']['y'] - enemy['at']['y']) < 1, arms
+    assert arms['right']['mode'] == 'rest' and arms['right']['item'] == held_prop and arms['right']['open'], arms
+    page.screenshot(path=str(EVIDENCE / 'sa026c-held-dual-arm.png'))
+    page.evaluate('''p => document.querySelector('#scene').dispatchEvent(new PointerEvent('pointerup', {
+        pointerId: 11, pointerType: 'touch', clientX: p.x, clientY: p.y, bubbles: true
+    }))''', enemy['at'])
+
+    still_held = page.evaluate('document.querySelector("#scene").dataset.held')
+    assert still_held == held_prop, f'Ordinary horizontal drag must not throw! Expected {held_prop}, got {still_held}'
+    flights_before_throw = int(page.evaluate('document.querySelector("#scene").dataset.flights || "0"'))
+    assert flights_before_throw == 0, f'Expected 0 active flights before throw, got {flights_before_throw}'
+
+    page.evaluate('''() => {
+        const canvas = document.querySelector("#scene");
+        canvas.dispatchEvent(new PointerEvent("pointerdown", { pointerId: 12, pointerType: "touch", clientX: 200, clientY: 200, bubbles: true }));
+    }''')
+    assert page.evaluate('document.querySelector("#scene").dataset.touching') == 'true'
+    page.evaluate('''() => {
+        const canvas = document.querySelector("#scene");
+        canvas.dispatchEvent(new PointerEvent("pointercancel", { pointerId: 12, pointerType: "touch", clientX: 200, clientY: 200, bubbles: true }));
+    }''')
+    assert page.evaluate('document.querySelector("#scene").dataset.touching') == 'false'
+    assert page.evaluate('document.querySelector("#scene").dataset.held') == held_prop
+    assert int(page.evaluate('document.querySelector("#scene").dataset.flights')) == 0
+    page.wait_for_function('window.__interaction.arms().left.mode === "rest"')
+
+    thrown = page.wait_for_function('''() => {
+        const e = window.__interaction.actors().find(t => t.kind === 'enemy' && t.at
+            && t.center.x > 0 && t.center.x < innerWidth && t.center.y > 0 && t.center.y < innerHeight - 90
+            && window.__interaction.shot(t.at.x, t.at.y).id === t.id);
+        if (!e) return false;
+        const x = e.center.x, y = e.center.y + 10;
+        const canvas = document.querySelector("#scene");
+        canvas.dispatchEvent(new PointerEvent('pointerdown', { pointerId: 13, pointerType: 'touch', clientX: x, clientY: y + 80, bubbles: true }));
+        canvas.dispatchEvent(new PointerEvent('pointermove', { pointerId: 13, pointerType: 'touch', clientX: x, clientY: y, bubbles: true }));
+        const flights = window.__interaction.flights();
+        canvas.dispatchEvent(new PointerEvent('pointerup', { pointerId: 13, pointerType: 'touch', clientX: x, clientY: y, bubbles: true }));
+        return { target: e, end: { x, y }, flights, strike: JSON.parse(canvas.dataset.strike || '{}') };
+    }''', timeout=10000).json_value()
+
+    page.wait_for_function('document.querySelector("#scene").dataset.held === ""', timeout=5000)
+    after_throw_held = page.evaluate('document.querySelector("#scene").dataset.held')
+    assert after_throw_held == '', f'Held item must be cleared after throw, got {after_throw_held}'
+
+    throw_strike = thrown['strike']
+    assert throw_strike.get('action') == 'grab' and throw_strike.get('outcome') == 'throw' and throw_strike.get('kind') == 'flight', f'Expected flight throw strike, got {throw_strike}'
+    assert len(thrown['flights']) == 1, thrown
+    flight = thrown['flights'][0]
+    assert flight['id'] == throw_strike['id'] and flight['kind'] == held_prop and flight['age'] == 0, thrown
+    target = thrown['target']['world']
+    duration = (target['z'] - flight['pos']['z']) / flight['vel']['z']
+    assert duration > 0 and math.hypot(thrown['target']['center']['x'] - thrown['end']['x'], thrown['target']['center']['y'] - thrown['end']['y']) < 150, thrown
+    assert abs(flight['pos']['x'] + flight['vel']['x'] * duration - target['x']) < 1e-6, thrown
+    assert abs(flight['pos']['y'] + flight['vel']['y'] * duration - 4.75 * duration ** 2 - target['y']) < 1e-6, thrown
+    page.wait_for_function('id => window.__interaction.flights().some(f => f.id === id && f.age > 0 && f.vel.y !== 0)', arg=flight['id'])
+    page.wait_for_function('id => !window.__interaction.flights().some(f => f.id === id)', arg=flight['id'], timeout=10000)
+    assert page.evaluate('document.querySelector("#scene").dataset.touching') == 'false'
+    print('SA026c confirmed grab, active drawn arms, punch, nonthrow/cancel, local ballistic throw:', json.dumps({'prop': prop['kind'], 'punch': last_strike, 'arms': arms, 'throw': thrown}), flush=True)
+    ctx.close()
+
+
 def main() -> None:
     errors: list[str] = []
     with server_url() as url, sync_playwright() as p:
@@ -221,6 +338,8 @@ def main() -> None:
         test_landscape_915x412(browser, url, errors)
         print('Testing desktop regression (mouse, F8/W autowin, resize)...')
         test_desktop_regression(browser, url, errors)
+        print('Testing touch prop grab, active drawn arms, cancel reset, and local upward throw (SA-026c)...')
+        test_touch_prop_grab_and_throw(browser, url, errors)
         browser.close()
 
     assert not errors, f'Console/page errors encountered: {errors}'
