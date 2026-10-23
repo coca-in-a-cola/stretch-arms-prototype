@@ -13,6 +13,7 @@ import { PROPS, PROP_KINDS, REACH_COST } from './props';
 import { ragtimeScore } from './ragtime';
 import { LOOKS, greyscaleWorld, greyCanvas, greyColor } from './palette';
 import { armMetrics, restPose, punchPose, sideFor, drawArm as inkArm, type Avoid, type Pt } from './arm';
+import { sweepSegment, HitCooldownTracker, detectUpwardThrow, selectLocalAimEnemy, type TouchPoint, type AimCandidate, type SwipeInfo } from './gestures';
 import { reducedMotion, unlockAudio, sound, trickle, ragtime, settingsUi, bindSettings } from './preferences';
 
 let saved = loadProgress(() => null);
@@ -1086,6 +1087,150 @@ let mouseX = -1, edgeHold = 0;
 const DRAG_PX = 14, EDGE = .07, PAN_SPEED = 11;
 let drag: { id: number; x: number; y: number; pan: number; moved: boolean } | null = null;
 const canPan = () => game.mode === 'play' && LEVELS[game.level].pan > 0;
+
+const hitCooldowns = new HitCooldownTracker(0.35);
+let touchDrag: { id: number; currentX: number; currentY: number; prevX: number; prevY: number; moved: boolean } | null = null;
+const touchHistory: TouchPoint[] = [];
+
+function executeTouchThrow(swipe: SwipeInfo) {
+  if (game.mode !== 'play' || !game.held) return;
+  const rect = canvas.getBoundingClientRect();
+  const heldItem = game.held;
+
+  const candidates: AimCandidate<Actor>[] = game.actors
+    .filter(a => a.kind === 'enemy' || a.kind === 'thug')
+    .map(a => ({
+      entity: a,
+      screenPos: toScreen(pose(game.level, a, motion())),
+      isOccluded: clickablePoint(a) === null,
+    }));
+
+  const maxRadiusPx = Math.max(150, rect.width * 0.22);
+  const targetEnemy = selectLocalAimEnemy(swipe.endPoint, { x: swipe.velocity.vx, y: swipe.velocity.vy }, candidates, maxRadiusPx);
+
+  let targetPoint: Vec3;
+  if (targetEnemy) {
+    const p = pose(game.level, targetEnemy, motion());
+    targetPoint = { x: p.x, y: p.y, z: p.z };
+  } else {
+    const ndcX = ((swipe.endPoint.x - rect.left) / (rect.width || 1)) * 2 - 1;
+    const ndcY = -(((swipe.endPoint.y - rect.top) / (rect.height || 1)) * 2 - 1);
+    raycaster.setFromCamera(new THREE.Vector2(ndcX, ndcY), camera);
+    const p = raycaster.ray.at(10, new THREE.Vector3());
+    targetPoint = { x: p.x, y: p.y, z: p.z };
+  }
+
+  const staminaBefore = game.stamina;
+  if (!game.spend('grab')) { updateHud(); sound('ui'); return; }
+
+  raycaster.setFromCamera(new THREE.Vector2(0.45, -0.65), camera);
+  const from = raycaster.ray.at(1.7, new THREE.Vector3());
+  const f = game.launch({ x: from.x, y: from.y, z: from.z }, targetPoint);
+  strikes.push({ action: 'grab', outcome: 'throw', kind: 'flight', id: f?.id ?? null, staminaBefore, staminaAfter: game.stamina });
+  if (strikes.length > 20) strikes.shift();
+
+  sound('toss');
+  const ndcTarget = new THREE.Vector3(targetPoint.x, targetPoint.y, targetPoint.z).project(camera);
+  swing = {
+    action: 'grab',
+    throwing: true,
+    launched: true,
+    resolved: true,
+    spot: { x: (ndcTarget.x + 1) / 2, y: (1 - ndcTarget.y) / 2 },
+    ray: aimRay(new THREE.Vector2(ndcTarget.x, ndcTarget.y)),
+    shot: { kind: 'whiff', distance: 6, point: targetPoint },
+    phase: 0,
+    held: heldItem,
+    staminaBefore,
+    staminaAfter: game.stamina,
+  };
+  updateHud();
+  renderUi();
+}
+
+function sweepTouchSegment(x0: number, y0: number, x1: number, y1: number) {
+  if (game.mode !== 'play') return;
+  const rect = canvas.getBoundingClientRect();
+  const pts = sweepSegment({ x: x0, y: y0 }, { x: x1, y: y1 }, 16);
+  for (const pt of pts) {
+    if (game.briefing) {
+      const hitRes = herald.hit(pt.x, pt.y);
+      if (hitRes === 'flyer') {
+        const res = game.briefPunch('flyer');
+        if (res === 'tear') { sound('flop'); if (motion()) { shake = .06; hitstop = .04; } }
+        renderUi();
+        break;
+      } else if (hitRes === 'herald') {
+        if (hitCooldowns.canHit('herald', game.elapsed)) {
+          hitCooldowns.recordHit('herald', game.elapsed);
+          game.briefPunch('herald');
+          renderUi();
+          break;
+        }
+      }
+      continue;
+    }
+    const ndcX = ((pt.x - rect.left) / (rect.width || 1)) * 2 - 1;
+    const ndcY = -(((pt.y - rect.top) / (rect.height || 1)) * 2 - 1);
+    const ndc = new THREE.Vector2(THREE.MathUtils.clamp(ndcX, -1, 1), THREE.MathUtils.clamp(ndcY, -1, 1));
+    const shot = shotAt(ndc);
+    const id = typeof shot.id === 'number' ? shot.id : undefined;
+
+    if (shot.kind === 'enemy' || shot.kind === 'thug') {
+      if (id !== undefined && hitCooldowns.canHit(id, game.elapsed)) {
+        if (game.spend('punch')) {
+          hitCooldowns.recordHit(id, game.elapsed);
+          const outcome = game.resolve('punch', { kind: shot.kind, id: shot.id, point: shot.point });
+          strikes.push({ action: 'punch', outcome, kind: shot.kind, id: shot.id ?? null, staminaBefore: game.stamina + 24, staminaAfter: game.stamina });
+          if (strikes.length > 20) strikes.shift();
+          if (outcome === 'hit') sound('hit');
+          if (id !== undefined) { const v = views.get(id); if (v) v.flash = 1; }
+          if (motion()) { shake = .16; hitstop = .06; }
+          pops.push({ key: 'hit', x: pt.x, y: pt.y, size: armMetrics(rect.width, rect.height).r * 2.6, age: 0 });
+          drainEvents(toScreen(shot.point));
+          syncActors(runtime);
+          updateHud();
+          renderUi();
+        }
+      }
+    } else if (shot.kind === 'prop' && game.held === null) {
+      if (id !== undefined && hitCooldowns.canHit(id, game.elapsed)) {
+        if (game.spend('grab')) {
+          hitCooldowns.recordHit(id, game.elapsed);
+          const outcome = game.resolve('grab', { kind: shot.kind, id: shot.id, point: shot.point });
+          strikes.push({ action: 'grab', outcome, kind: shot.kind, id: shot.id ?? null, staminaBefore: game.stamina + REACH_COST, staminaAfter: game.stamina });
+          if (strikes.length > 20) strikes.shift();
+          sound('grab');
+          pops.push({ key: 'grab', x: pt.x, y: pt.y, size: armMetrics(rect.width, rect.height).r * 2.2, age: 0 });
+          drainEvents(toScreen(shot.point));
+          syncActors(runtime);
+          updateHud();
+          renderUi();
+        }
+      }
+    } else if (shot.kind === 'dog' || shot.kind === 'friend') {
+      if (id !== undefined && hitCooldowns.canHit(id, game.elapsed)) {
+        hitCooldowns.recordHit(id, game.elapsed);
+        game.resolve('punch', { kind: shot.kind, id: shot.id, point: shot.point });
+        if (motion()) shake = .14;
+        drainEvents(toScreen(shot.point));
+        syncActors(runtime);
+        updateHud();
+        renderUi();
+      }
+    } else if (shot.kind === 'cover' && typeof shot.id === 'string') {
+      if (hitCooldowns.canHit(shot.id, game.elapsed)) {
+        hitCooldowns.recordHit(shot.id, game.elapsed);
+        if (game.gag(shot.id, shot.point)) {
+          const c = coverMeshes.get(shot.id);
+          if (c) c.userData.wobble = 1;
+        }
+        drainEvents(toScreen(shot.point));
+      }
+    }
+  }
+}
+
 function worldPerPx() {
   const rect = canvas.getBoundingClientRect();
   const d = camera.position.z + 2, half = Math.tan(camera.fov * Math.PI / 360) * d * camera.aspect;
@@ -1119,6 +1264,35 @@ function setPointer(e: PointerEvent) {
 }
 canvas.addEventListener('pointermove', e => {
   if (e.pointerType === 'mouse') mouseX = e.clientX;
+  if (touchDrag && e.pointerId === touchDrag.id) {
+    touchDrag.prevX = touchDrag.currentX;
+    touchDrag.prevY = touchDrag.currentY;
+    touchDrag.currentX = e.clientX;
+    touchDrag.currentY = e.clientY;
+    touchHistory.push({ x: e.clientX, y: e.clientY, time: performance.now() / 1000 });
+    while (touchHistory.length > 20 || (touchHistory.length > 2 && touchHistory[touchHistory.length - 1].time - touchHistory[0].time > 0.3)) {
+      touchHistory.shift();
+    }
+    if (game.ultActive) { setPointer(e); return; }
+    if (game.held !== null) {
+      const throwSwipe = detectUpwardThrow(touchHistory);
+      if (throwSwipe && throwSwipe.isUpwardThrow) {
+        executeTouchThrow(throwSwipe);
+        touchDrag = null;
+        touchHistory.length = 0;
+        return;
+      }
+    }
+    sweepTouchSegment(touchDrag.prevX, touchDrag.prevY, touchDrag.currentX, touchDrag.currentY);
+    setPointer(e);
+    if (canPan()) {
+      const rect = canvas.getBoundingClientRect();
+      const f = (e.clientX - rect.left) / Math.max(1, rect.width);
+      if (f < EDGE) pan = clampPan(game.level, pan - (1 - f / EDGE) * PAN_SPEED * 0.02);
+      else if (f > 1 - EDGE) pan = clampPan(game.level, pan + ((f - (1 - EDGE)) / EDGE) * PAN_SPEED * 0.02);
+    }
+    return;
+  }
   if (drag && e.pointerId === drag.id) {
     const dx = e.clientX - drag.x;
     if (!drag.moved && Math.hypot(dx, e.clientY - drag.y) > DRAG_PX && canPan() && !game.ultActive) drag.moved = true;
@@ -1130,24 +1304,46 @@ canvas.addEventListener('pointerleave', () => { mouseX = -1; });
 canvas.addEventListener('pointerdown', e => {
   if (game.mode !== 'play') return;
   if (e.pointerType === 'touch') {
-    drag = { id: e.pointerId, x: e.clientX, y: e.clientY, pan, moved: false };
-    if (game.ultActive) setPointer(e); // during the ult the finger steers the stream
+    game.touch = true;
+    document.documentElement.dataset.touch = 'true';
+    touchDrag = { id: e.pointerId, currentX: e.clientX, currentY: e.clientY, prevX: e.clientX, prevY: e.clientY, moved: false };
+    touchHistory.length = 0;
+    touchHistory.push({ x: e.clientX, y: e.clientY, time: performance.now() / 1000 });
+    setPointer(e);
+    if (game.ultActive) return;
+    sweepTouchSegment(e.clientX, e.clientY, e.clientX, e.clientY);
     return;
   }
   setPointer(e);
-  if (game.ultActive) return; // during the ult the pointer only steers the stream
+  if (game.ultActive) return;
   perform(e.button === 2 ? 'grab' : 'punch');
 });
 const endDrag = (e: PointerEvent) => {
-  if (!drag || e.pointerId !== drag.id) return;
-  const tap = !drag.moved; drag = null;
-  if (!tap || game.mode !== 'play') return;
-  setPointer(e);
-  if (game.briefing) { perform('punch'); return; } // briefing: a tap punches the flyer straight away
-  if (!game.ultActive) { game.message = 'Прицел стоит. Жми «Удар» или «Хватай».'; updateHud(); }
+  if (touchDrag && e.pointerId === touchDrag.id) {
+    if (game.held !== null) {
+      const throwSwipe = detectUpwardThrow(touchHistory);
+      if (throwSwipe && throwSwipe.isUpwardThrow) {
+        executeTouchThrow(throwSwipe);
+      }
+    }
+    touchDrag = null;
+    touchHistory.length = 0;
+  }
+  if (drag && e.pointerId === drag.id) {
+    const tap = !drag.moved; drag = null;
+    if (tap && game.mode !== 'play') return;
+    setPointer(e);
+    if (game.briefing) { perform('punch'); return; }
+  }
 };
 canvas.addEventListener('pointerup', endDrag);
-canvas.addEventListener('pointercancel', e => { if (drag && e.pointerId === drag.id) drag = null; });
+canvas.addEventListener('pointercancel', e => {
+  if (touchDrag && e.pointerId === touchDrag.id) {
+    touchDrag = null;
+    touchHistory.length = 0;
+  }
+  if (drag && e.pointerId === drag.id) drag = null;
+});
 addEventListener('keyup', e => panKeys.delete(e.code));
 addEventListener('blur', () => panKeys.clear());
 canvas.addEventListener('contextmenu', e => e.preventDefault());
@@ -1186,7 +1382,8 @@ function renderUi() {
     button('level2', () => startLevel(2));
     button('back', () => { game.mode = 'menu'; renderUi(); });
   } else {
-    ui.innerHTML = '<div class="hud"><div class="hudbox"><div id="hearts" class="hearts"></div><div class="energy"><i id="energy"></i></div><div class="small" style="margin-top:6px">СИЛЫ <span id="stamina"></span></div></div><div class="hudbox"><div class="small">ТВОЙ СЧЁТ</div><div id="score" class="score"></div><div id="combo" class="small"></div></div><button id="pause" class="pause" aria-label="Пауза">Ⅱ</button></div><div id="ultmeter" class="ultmeter" hidden><b>УЛЬТА</b><span><i id="ultfill"></i></span></div><div id="progress" class="progress"></div><div class="crosshair"></div><div id="message" class="message" role="status"></div>' + (LEVELS[game.level].pan > 0 ? '<div id="panL" class="panhint left" aria-hidden="true"><b>◀</b><span></span></div><div id="panR" class="panhint right" aria-hidden="true"><b>▶</b><span></span></div>' : '') + '<div class="controls"><button id="punch" class="primary">УДАР ↗<small>ЛКМ / ПРОБЕЛ · 24 СИЛЫ</small></button><button id="grab" class="secondary">ХВАТАЙ ◎<small>ПКМ / E · 12 СИЛ</small></button></div>';
+    const mobileControls = game.touch ? '' : '<div class="controls"><button id="punch" class="primary">УДАР ↗<small>ЛКМ / ПРОБЕЛ · 24 СИЛЫ</small></button><button id="grab" class="secondary">ХВАТАЙ ◎<small>ПКМ / E · 12 СИЛ</small></button></div>';
+    ui.innerHTML = '<div class="hud"><div class="hudbox"><div id="hearts" class="hearts"></div><div class="energy"><i id="energy"></i></div><div class="small" style="margin-top:6px">СИЛЫ <span id="stamina"></span></div></div><div class="hudbox"><div class="small">ТВОЙ СЧЁТ</div><div id="score" class="score"></div><div id="combo" class="small"></div></div><button id="pause" class="pause" aria-label="Пауза">Ⅱ</button></div><div id="ultmeter" class="ultmeter" hidden><b>УЛЬТА</b><span><i id="ultfill"></i></span></div><div id="progress" class="progress"></div><div class="crosshair"></div><div id="message" class="message" role="status"></div>' + (LEVELS[game.level].pan > 0 ? '<div id="panL" class="panhint left" aria-hidden="true"><b>◀</b><span></span></div><div id="panR" class="panhint right" aria-hidden="true"><b>▶</b><span></span></div>' : '') + mobileControls;
     button('punch', () => perform('punch'));
     button('grab', () => perform('grab'));
     button('pause', () => { game.pause(); renderUi(); });
@@ -1253,6 +1450,9 @@ function updateHud() {
   if (canvas.dataset.zone !== zone) canvas.dataset.zone = zone;
   const ult = JSON.stringify({ phase: game.ult.phase, meter: +game.ult.meter.toFixed(2), tip: stream && game.ult.phase === 'pour' ? { x: Math.round(stream.tip.x * innerWidth), y: Math.round(stream.tip.y * innerHeight) } : null });
   if (canvas.dataset.ult !== ult) canvas.dataset.ult = ult;
+  if (game.touch && (!game.message || game.message.includes('Прицел стоит') || game.message.includes('Двор ждёт'))) {
+    game.message = game.held ? 'Свайп снизу вверх — бросок!' : 'Веди пальцем — бей задир! Через предмет — захват.';
+  }
   set('message', game.message);
   const energy = document.getElementById('energy'); if (energy) energy.style.width = game.stamina + '%';
   const grab = document.getElementById('grab'); if (grab) grab.innerHTML = game.held ? 'БРОСАЙ ↗<small>' + PROPS[game.held].name.toUpperCase() + ' · ' + costOf('grab', true, game.held) + ' СИЛ</small>' : 'ХВАТАЙ ◎<small>ПКМ / E · ' + REACH_COST + ' СИЛ</small>';
@@ -1281,8 +1481,8 @@ function updatePanHints() {
 /** The on-screen buttons the resting gloves must not hide behind (phones put them full-width at the bottom). */
 let avoidRect: Avoid | null = null, measureTick = 0;
 function measureControls() {
-  const r = document.querySelector('.controls')?.getBoundingClientRect();
-  avoidRect = r && r.width ? { left: r.left, right: r.right, top: r.top } : null;
+  const c = document.querySelector('.controls button') ? document.querySelector('.controls')?.getBoundingClientRect() : null;
+  avoidRect = c && c.width ? { left: c.left, right: c.right, top: c.top } : null;
   // The status pill is centred text in a wide box: measure the visible text, not the box.
   const msg = document.getElementById('message');
   if (avoidRect && msg?.textContent) {
@@ -1454,7 +1654,15 @@ function drawArm(time: number) {
     // While the herald talks the fists rest low at the corners so they never cover the flyer text.
     const bob = (motion() ? Math.sin(time * 2.4 + (side > 0 ? 0 : 1.3)) * H * .006 : 0) + (game.briefing ? armMetrics(W, H).r * 1.7 : 0);
     let arm = restPose(side, W, H, avoid, bob);
-    if (s && side === active) arm = s.throwing ? punchPose(side, W, H, whipSpot(s), k, WHIP, { throwing: true, avoid }) : punchPose(side, W, H, spot, k, { arrive: ARRIVE, release: RELEASE }, { depth: 6.5 / Math.max(3, s.shot.distance), grab: s.action === 'grab', avoid });
+    if (s && side === active) {
+      arm = s.throwing ? punchPose(side, W, H, whipSpot(s), k, WHIP, { throwing: true, avoid }) : punchPose(side, W, H, spot, k, { arrive: ARRIVE, release: RELEASE }, { depth: 6.5 / Math.max(3, s.shot.distance), grab: s.action === 'grab', avoid });
+    } else if (touchDrag && !s) {
+      const strikeSide = game.held ? -1 : sideFor({ x: touchDrag.currentX - rect.left, y: touchDrag.currentY - rect.top }, W);
+      if (side === strikeSide) {
+        const touchSpot = { x: touchDrag.currentX - rect.left, y: touchDrag.currentY - rect.top };
+        arm = punchPose(side, W, H, touchSpot, 0.5, { arrive: 0.1, release: 0.9 }, { depth: 1, avoid: null });
+      }
+    }
     const holding = game.held && side === 1 && !(s && s.throwing && active === 1);
     if (holding) arm = { ...arm, open: true };
     // Speed lines trail the fist while it flies out.

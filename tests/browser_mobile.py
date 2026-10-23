@@ -84,18 +84,36 @@ def test_landscape_667x375(browser, url: str, errors: list[str]) -> None:
     page.locator('#level1').tap()
     skip_briefing_if_active(page, touch=True)
 
-    page.locator('#punch').wait_for(timeout=10000)
+    assert page.locator('#punch').count() == 0 or not page.locator('#punch').is_visible(), 'Punch button must be removed on mobile'
+    assert page.locator('#grab').count() == 0 or not page.locator('#grab').is_visible(), 'Grab button must be removed on mobile'
     check_buttons(page)
 
     assert page.locator('#hearts').is_visible()
     assert page.locator('#pause').is_visible()
     assert page.locator('#stamina').is_visible()
+    assert page.locator('#progress').is_visible()
 
-    page.touchscreen.tap(330, 180)
-    page.locator('#punch').tap()
+    page.wait_for_timeout(300)
+    pt = page.evaluate('''() => {
+        for (const t of (window.__game?.actors || [])) {
+            if (t.kind === 'enemy') {
+                const p = window.__test?.project?.(t.id);
+                if (p) return p;
+            }
+        }
+        return { x: 330, y: 180 };
+    }''')
+    x = pt['x']
+    y = pt['y']
+    page.evaluate(f'''() => {{
+        const canvas = document.querySelector("#scene");
+        canvas.dispatchEvent(new PointerEvent("pointerdown", {{ pointerId: 2, pointerType: "touch", clientX: {x - 30}, clientY: {y}, bubbles: true }}));
+        canvas.dispatchEvent(new PointerEvent("pointermove", {{ pointerId: 2, pointerType: "touch", clientX: {x + 30}, clientY: {y}, bubbles: true }}));
+        canvas.dispatchEvent(new PointerEvent("pointerup", {{ pointerId: 2, pointerType: "touch", clientX: {x + 30}, clientY: {y}, bubbles: true }}));
+    }}''')
     page.wait_for_timeout(300)
 
-    page.screenshot(path=str(EVIDENCE / 'mobile-667x375.png'))
+    page.screenshot(path=str(EVIDENCE / 'sa026-mobile-667x375.png'))
     ctx.close()
 
 
@@ -109,15 +127,36 @@ def test_landscape_844x390(browser, url: str, errors: list[str]) -> None:
     page.locator('#start').wait_for(timeout=20000)
     page.locator('#start').tap()
     page.locator('#level1').tap()
+
+    page.wait_for_timeout(400)
+    page.screenshot(path=str(EVIDENCE / 'sa026-tutorial-844x390.png'))
     skip_briefing_if_active(page, touch=True)
 
-    page.locator('#punch').wait_for(timeout=10000)
+    assert page.locator('#punch').count() == 0 or not page.locator('#punch').is_visible(), 'Punch button must be removed on mobile'
+    assert page.locator('#grab').count() == 0 or not page.locator('#grab').is_visible(), 'Grab button must be removed on mobile'
     check_buttons(page)
 
-    page.touchscreen.tap(420, 190)
+    page.wait_for_timeout(300)
+    pt = page.evaluate('''() => {
+        for (const t of (window.__game?.actors || [])) {
+            if (t.kind === 'enemy') {
+                const p = window.__test?.project?.(t.id);
+                if (p) return p;
+            }
+        }
+        return { x: 420, y: 190 };
+    }''')
+    x = pt['x']
+    y = pt['y']
+    page.evaluate(f'''() => {{
+        const canvas = document.querySelector("#scene");
+        canvas.dispatchEvent(new PointerEvent("pointerdown", {{ pointerId: 3, pointerType: "touch", clientX: {x - 35}, clientY: {y}, bubbles: true }}));
+        canvas.dispatchEvent(new PointerEvent("pointermove", {{ pointerId: 3, pointerType: "touch", clientX: {x + 35}, clientY: {y}, bubbles: true }}));
+        canvas.dispatchEvent(new PointerEvent("pointerup", {{ pointerId: 3, pointerType: "touch", clientX: {x + 35}, clientY: {y}, bubbles: true }}));
+    }}''')
     page.wait_for_timeout(200)
 
-    page.screenshot(path=str(EVIDENCE / 'mobile-844x390.png'))
+    page.screenshot(path=str(EVIDENCE / 'sa026-mobile-844x390.png'))
     ctx.close()
 
 
@@ -138,7 +177,7 @@ def test_landscape_915x412(browser, url: str, errors: list[str]) -> None:
     page.locator('#resume').wait_for(timeout=5000)
     check_buttons(page)
 
-    page.screenshot(path=str(EVIDENCE / 'mobile-915x412.png'))
+    page.screenshot(path=str(EVIDENCE / 'sa026-mobile-915x412.png'))
     page.locator('#resume').tap()
     ctx.close()
 
@@ -155,12 +194,16 @@ def test_desktop_regression(browser, url: str, errors: list[str]) -> None:
     page.locator('#level1').click()
     skip_briefing_if_active(page, touch=False)
 
+    assert page.locator('#punch').is_visible(), 'Punch button must remain on desktop'
+    assert page.locator('#grab').is_visible(), 'Grab button must remain on desktop'
+
     page.set_viewport_size({'width': 1024, 'height': 600})
     page.wait_for_timeout(300)
 
     page.keyboard.press('KeyW')
     page.locator('#app[data-mode=result]').wait_for(timeout=10000)
     assert 'КРАСИВО' in page.locator('h2').inner_text()
+    page.screenshot(path=str(EVIDENCE / 'sa026-desktop.png'))
     ctx.close()
 
 

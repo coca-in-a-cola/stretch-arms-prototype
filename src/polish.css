@@ -108,4 +108,10 @@ html[data-reduced-motion=true] .intertitle>div{animation:none}
 .orientation-card .buttons button{min-height:44px;padding:12px 26px;font-size:14px}
 @keyframes rotatePhone{0%,25%{transform:rotate(0deg)}75%,100%{transform:rotate(-90deg)}}
 html[data-reduced-motion=true] .orientation-icon{animation:none!important}
+@media (pointer: coarse) {
+  .controls { display: none !important; }
+}
+html[data-touch="true"] .controls {
+  display: none !important;
+}
 
