@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import {
   sweepSegment,
   HitCooldownTracker,
-  detectUpwardThrow,
+  DoubleTapTracker,
   selectLocalAimEnemy,
   type TouchPoint,
   type AimCandidate,
@@ -76,53 +76,71 @@ describe('gestures: HitCooldownTracker', () => {
   });
 });
 
-describe('gestures: detectUpwardThrow', () => {
-  test('recognizes a deliberate fast upward swipe', () => {
-    // 60px upward over 80ms -> dy = -60, dt = 0.08, vy = -750 px/s
-    const history: TouchPoint[] = [
-      { x: 200, y: 300, time: 1.0 },
-      { x: 202, y: 270, time: 1.04 },
-      { x: 205, y: 240, time: 1.08 },
-    ];
-    const swipe = detectUpwardThrow(history);
-    expect(swipe).not.toBeNull();
-    expect(swipe!.isUpwardThrow).toBe(true);
-    expect(swipe!.velocity.vy).toBeLessThan(-320);
+describe('gestures: DoubleTapTracker', () => {
+  const p = (time: number, x = 200, y = 200): TouchPoint => ({ time, x, y });
+  function tap(tracker: DoubleTapTracker, time: number, x = 200, eligible = true) {
+    tracker.begin(p(time, x), eligible);
+    return tracker.end(p(time + .04, x), eligible);
+  }
+
+  test('accepts two deliberate nearby taps only once', () => {
+    const tracker = new DoubleTapTracker();
+    expect(tap(tracker, 1)).toBe(false);
+    expect(tap(tracker, 1.16, 210)).toBe(true);
+    expect(tracker.end(p(1.21), true)).toBe(false);
+    expect(tap(tracker, 1.30)).toBe(false);
   });
 
-  test('rejects a slow upward drag', () => {
-    // 35px upward over 400ms -> vy = -87.5 px/s (too slow)
-    const history: TouchPoint[] = [
-      { x: 200, y: 300, time: 1.0 },
-      { x: 200, y: 280, time: 1.2 },
-      { x: 200, y: 265, time: 1.4 },
-    ];
-    const swipe = detectUpwardThrow(history);
-    expect(swipe).not.toBeNull();
-    expect(swipe!.isUpwardThrow).toBe(false);
+  test.each([.04, .5])('rejects duplicate or late tap gap %s', gap => {
+    const tracker = new DoubleTapTracker();
+    tap(tracker, 1);
+    expect(tap(tracker, 1 + gap)).toBe(false);
   });
 
-  test('rejects horizontal drag or pan gesture', () => {
-    // 120px horizontal over 80ms
-    const history: TouchPoint[] = [
-      { x: 100, y: 200, time: 1.0 },
-      { x: 160, y: 195, time: 1.04 },
-      { x: 220, y: 190, time: 1.08 },
-    ];
-    const swipe = detectUpwardThrow(history);
-    expect(swipe).not.toBeNull();
-    expect(swipe!.isUpwardThrow).toBe(false);
+  test('rejects distant second tap', () => {
+    const tracker = new DoubleTapTracker();
+    tap(tracker, 1);
+    expect(tap(tracker, 1.16, 240)).toBe(false);
   });
 
-  test('rejects downward drag', () => {
-    const history: TouchPoint[] = [
-      { x: 200, y: 100, time: 1.0 },
-      { x: 200, y: 160, time: 1.05 },
-      { x: 200, y: 220, time: 1.1 },
-    ];
-    const swipe = detectUpwardThrow(history);
-    expect(swipe).not.toBeNull();
-    expect(swipe!.isUpwardThrow).toBe(false);
+  test.each([[240, 200], [200, 120], [200, 280]])('rejects drag through %s,%s even after returning', (x, y) => {
+    const tracker = new DoubleTapTracker();
+    tap(tracker, 1);
+    tracker.begin(p(1.16), true);
+    tracker.move(p(1.18, x, y));
+    expect(tracker.end(p(1.20), true)).toBe(false);
+    expect(tap(tracker, 1.32)).toBe(false);
+  });
+
+  test('rejects long press and clears earlier tap', () => {
+    const tracker = new DoubleTapTracker();
+    tap(tracker, 1);
+    tracker.begin(p(1.16), true);
+    expect(tracker.end(p(1.4), true)).toBe(false);
+    expect(tap(tracker, 1.5)).toBe(false);
+  });
+
+  test('cancel resets pending and active taps', () => {
+    const tracker = new DoubleTapTracker();
+    tap(tracker, 1);
+    tracker.begin(p(1.16), true);
+    tracker.reset();
+    expect(tracker.end(p(1.2), true)).toBe(false);
+    expect(tap(tracker, 1.3)).toBe(false);
+  });
+
+  test('pickup tap cannot seed throw sequence', () => {
+    const tracker = new DoubleTapTracker();
+    tracker.begin(p(1), false);
+    expect(tracker.end(p(1.04), true)).toBe(false);
+    expect(tap(tracker, 1.16)).toBe(false);
+    expect(tap(tracker, 1.3)).toBe(true);
+  });
+
+  test('empty-hand double tap cannot throw', () => {
+    const tracker = new DoubleTapTracker();
+    expect(tap(tracker, 1, 200, false)).toBe(false);
+    expect(tap(tracker, 1.16, 200, false)).toBe(false);
   });
 });
 
@@ -132,7 +150,7 @@ describe('gestures: selectLocalAimEnemy (bounded aim assist)', () => {
   const gestureEnd = { x: 300, y: 220 };
   const gestureDir = { x: 0, y: -1 }; // Straight upward
 
-  test('selects suitable nearby enemy aligned with upward swipe', () => {
+  test('selects suitable nearby enemy aligned with aim direction', () => {
     const candidates: AimCandidate<Enemy>[] = [
       { entity: { id: 1, name: 'Close Ahead' }, screenPos: { x: 310, y: 140 } },
       { entity: { id: 2, name: 'Far Away' }, screenPos: { x: 700, y: 100 } },
@@ -150,6 +168,19 @@ describe('gestures: selectLocalAimEnemy (bounded aim assist)', () => {
     // Distance from (300, 220) to (50, 100) is 277px > 160px
     const selected = selectLocalAimEnemy(gestureEnd, gestureDir, candidates, 160);
     expect(selected).toBeNull();
+  });
+
+  test('does not extend local radius along aim direction', () => {
+    expect(selectLocalAimEnemy(gestureEnd, gestureDir, [
+      { entity: { id: 9, name: 'Distant ahead' }, screenPos: { x: 300, y: -100 } },
+    ], 160)).toBeNull();
+  });
+
+  test('zero-direction tap chooses nearest enemy around intended point', () => {
+    expect(selectLocalAimEnemy(gestureEnd, { x: 0, y: 0 }, [
+      { entity: 1, screenPos: { x: 320, y: 225 } },
+      { entity: 2, screenPos: { x: 304, y: 216 } },
+    ], 160)).toBe(2);
   });
 
   test('ignores occluded enemies even if nearby', () => {

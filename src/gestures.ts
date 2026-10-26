@@ -42,47 +42,40 @@ export class HitCooldownTracker {
   }
 }
 
-export interface SwipeInfo {
-  isUpwardThrow: boolean;
-  startPoint: { x: number; y: number };
-  endPoint: { x: number; y: number };
-  velocity: { vx: number; vy: number; speed: number };
-}
+export const DOUBLE_TAP = { maxPressSec: .22, maxGapSec: .32, minGapSec: .035, movePx: 12, radiusPx: 28 } as const;
 
-export function detectUpwardThrow(
-  history: readonly TouchPoint[],
-  opts: {
-    minUpwardDistance?: number;
-    minSpeedPxPerSec?: number;
-    maxTimeWindowSec?: number;
-  } = {}
-): SwipeInfo | null {
-  if (history.length < 2) return null;
-  const minDistance = opts.minUpwardDistance ?? 28;
-  const minSpeed = opts.minSpeedPxPerSec ?? 320;
-  const windowSec = opts.maxTimeWindowSec ?? 0.22;
+export class DoubleTapTracker {
+  private start: TouchPoint | null = null;
+  private previous: TouchPoint | null = null;
 
-  const latest = history[history.length - 1];
-  let oldestIndex = history.length - 2;
-  while (oldestIndex > 0 && (latest.time - history[oldestIndex].time) < windowSec) {
-    oldestIndex--;
+  constructor(readonly bounds: { readonly [K in keyof typeof DOUBLE_TAP]: number } = DOUBLE_TAP) {}
+
+  begin(point: TouchPoint, eligible: boolean): void {
+    if (!eligible || this.start) { this.reset(); return; }
+    this.start = point;
   }
-  const oldest = history[oldestIndex];
-  const dt = Math.max(1e-3, latest.time - oldest.time);
-  const dx = latest.x - oldest.x;
-  const dy = latest.y - oldest.y;
-  const vy = dy / dt;
-  const vx = dx / dt;
-  const speed = Math.hypot(vx, vy);
 
-  const isUpward = dy <= -minDistance && vy <= -minSpeed && Math.abs(dy) >= Math.abs(dx) * 0.6;
+  move(point: TouchPoint): void {
+    if (this.start && Math.hypot(point.x - this.start.x, point.y - this.start.y) > this.bounds.movePx) this.reset();
+  }
 
-  return {
-    isUpwardThrow: isUpward,
-    startPoint: { x: oldest.x, y: oldest.y },
-    endPoint: { x: latest.x, y: latest.y },
-    velocity: { vx, vy, speed },
-  };
+  end(point: TouchPoint, eligible: boolean): boolean {
+    this.move(point);
+    const start = this.start;
+    this.start = null;
+    if (!eligible || !start || point.time - start.time > this.bounds.maxPressSec || point.time < start.time) {
+      this.reset(); return false;
+    }
+    const previous = this.previous;
+    this.previous = point;
+    if (!previous) return false;
+    const gap = start.time - previous.time;
+    if (gap < this.bounds.minGapSec || gap > this.bounds.maxGapSec || Math.hypot(point.x - previous.x, point.y - previous.y) > this.bounds.radiusPx) return false;
+    this.reset();
+    return true;
+  }
+
+  reset(): void { this.start = null; this.previous = null; }
 }
 
 export interface AimCandidate<T = unknown> {
@@ -109,13 +102,14 @@ export function selectLocalAimEnemy<T>(
     const dx = c.screenPos.x - gestureEnd.x;
     const dy = c.screenPos.y - gestureEnd.y;
     const distToEnd = Math.hypot(dx, dy);
+    if (distToEnd > maxRadiusPx) continue;
 
     const forward = dx * udx + dy * udy;
     const perp = Math.abs(dx * (-udy) + dy * udx);
 
     if (forward < -40) continue;
 
-    const effectiveDist = forward >= 0 ? Math.hypot(perp, forward * 0.3) : distToEnd;
+    const effectiveDist = Math.hypot(gestureDir.x, gestureDir.y) === 0 ? distToEnd : forward >= 0 ? Math.hypot(perp, forward * 0.3) : distToEnd;
 
     if (effectiveDist < bestScore) {
       bestScore = effectiveDist;

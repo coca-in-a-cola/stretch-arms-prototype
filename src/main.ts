@@ -13,7 +13,7 @@ import { PROPS, PROP_KINDS, REACH_COST } from './props';
 import { ragtimeScore } from './ragtime';
 import { LOOKS, greyscaleWorld, greyCanvas, greyColor } from './palette';
 import { armMetrics, restPose, punchPose, sideFor, drawArm as inkArm, type Avoid, type Pt } from './arm';
-import { sweepSegment, HitCooldownTracker, detectUpwardThrow, selectLocalAimEnemy, type TouchPoint, type AimCandidate, type SwipeInfo } from './gestures';
+import { sweepSegment, HitCooldownTracker, DoubleTapTracker, selectLocalAimEnemy, type AimCandidate } from './gestures';
 import { reducedMotion, unlockAudio, sound, trickle, ragtime, settingsUi, bindSettings } from './preferences';
 
 let saved = loadProgress(() => null);
@@ -1090,9 +1090,10 @@ const canPan = () => game.mode === 'play' && LEVELS[game.level].pan > 0;
 
 const hitCooldowns = new HitCooldownTracker(0.35);
 let touchDrag: { id: number; currentX: number; currentY: number; prevX: number; prevY: number; moved: boolean } | null = null;
-const touchHistory: TouchPoint[] = [];
+const doubleTap = new DoubleTapTracker();
+const touchPoint = (e: PointerEvent) => ({ x: e.clientX, y: e.clientY, time: performance.now() / 1000 });
 
-function executeTouchThrow(swipe: SwipeInfo) {
+function executeTouchThrow(at: { readonly x: number; readonly y: number }) {
   if (game.mode !== 'play' || !game.held) return;
   const rect = canvas.getBoundingClientRect();
   const heldItem = game.held;
@@ -1106,15 +1107,15 @@ function executeTouchThrow(swipe: SwipeInfo) {
     }));
 
   const maxRadiusPx = Math.max(150, rect.width * 0.22);
-  const targetEnemy = selectLocalAimEnemy(swipe.endPoint, { x: swipe.velocity.vx, y: swipe.velocity.vy }, candidates, maxRadiusPx);
+  const targetEnemy = selectLocalAimEnemy(at, { x: 0, y: 0 }, candidates, maxRadiusPx);
 
   let targetPoint: Vec3;
   if (targetEnemy) {
     const p = pose(game.level, targetEnemy, motion());
     targetPoint = { x: p.x, y: p.y, z: p.z };
   } else {
-    const ndcX = ((swipe.endPoint.x - rect.left) / (rect.width || 1)) * 2 - 1;
-    const ndcY = -(((swipe.endPoint.y - rect.top) / (rect.height || 1)) * 2 - 1);
+    const ndcX = ((at.x - rect.left) / (rect.width || 1)) * 2 - 1;
+    const ndcY = -(((at.y - rect.top) / (rect.height || 1)) * 2 - 1);
     raycaster.setFromCamera(new THREE.Vector2(ndcX, ndcY), camera);
     const p = raycaster.ray.at(10, new THREE.Vector3());
     targetPoint = { x: p.x, y: p.y, z: p.z };
@@ -1198,6 +1199,7 @@ function sweepTouchSegment(x0: number, y0: number, x1: number, y1: number) {
         if (game.spend('grab')) {
           hitCooldowns.recordHit(id, game.elapsed);
           const outcome = game.resolve('grab', { kind: shot.kind, id: shot.id, point: shot.point });
+          doubleTap.reset();
           strikes.push({ action: 'grab', outcome, kind: shot.kind, id: shot.id ?? null, staminaBefore: game.stamina + REACH_COST, staminaAfter: game.stamina });
           if (strikes.length > 20) strikes.shift();
           sound('grab');
@@ -1269,21 +1271,8 @@ canvas.addEventListener('pointermove', e => {
     touchDrag.prevY = touchDrag.currentY;
     touchDrag.currentX = e.clientX;
     touchDrag.currentY = e.clientY;
-    touchHistory.push({ x: e.clientX, y: e.clientY, time: performance.now() / 1000 });
-    while (touchHistory.length > 20 || (touchHistory.length > 2 && touchHistory[touchHistory.length - 1].time - touchHistory[0].time > 0.3)) {
-      touchHistory.shift();
-    }
+    doubleTap.move(touchPoint(e));
     if (game.ultActive) { setPointer(e); return; }
-    if (game.held !== null) {
-      const throwSwipe = detectUpwardThrow(touchHistory);
-      if (throwSwipe && throwSwipe.isUpwardThrow) {
-        executeTouchThrow(throwSwipe);
-        touchDrag = null;
-        touchHistory.length = 0;
-        canvas.dataset.touching = 'false';
-        return;
-      }
-    }
     sweepTouchSegment(touchDrag.prevX, touchDrag.prevY, touchDrag.currentX, touchDrag.currentY);
     setPointer(e);
     if (canPan()) {
@@ -1305,11 +1294,12 @@ canvas.addEventListener('pointerleave', () => { mouseX = -1; });
 canvas.addEventListener('pointerdown', e => {
   if (game.mode !== 'play') return;
   if (e.pointerType === 'touch') {
+    e.preventDefault();
+    if (touchDrag) { doubleTap.reset(); return; }
     game.touch = true;
     document.documentElement.dataset.touch = 'true';
     touchDrag = { id: e.pointerId, currentX: e.clientX, currentY: e.clientY, prevX: e.clientX, prevY: e.clientY, moved: false };
-    touchHistory.length = 0;
-    touchHistory.push({ x: e.clientX, y: e.clientY, time: performance.now() / 1000 });
+    doubleTap.begin(touchPoint(e), game.held !== null && !game.ultActive && !game.briefing);
     canvas.dataset.touching = 'true';
     setPointer(e);
     if (game.ultActive) return;
@@ -1323,14 +1313,9 @@ canvas.addEventListener('pointerdown', e => {
 });
 const endDrag = (e: PointerEvent) => {
   if (touchDrag && e.pointerId === touchDrag.id) {
-    if (game.held !== null) {
-      const throwSwipe = detectUpwardThrow(touchHistory);
-      if (throwSwipe && throwSwipe.isUpwardThrow) {
-        executeTouchThrow(throwSwipe);
-      }
-    }
+    e.preventDefault();
+    if (doubleTap.end(touchPoint(e), game.mode === 'play' && game.held !== null && !game.ultActive && !game.briefing)) executeTouchThrow(touchPoint(e));
     touchDrag = null;
-    touchHistory.length = 0;
     canvas.dataset.touching = 'false';
     updateHud();
   }
@@ -1345,14 +1330,14 @@ canvas.addEventListener('pointerup', endDrag);
 canvas.addEventListener('pointercancel', e => {
   if (touchDrag && e.pointerId === touchDrag.id) {
     touchDrag = null;
-    touchHistory.length = 0;
+    doubleTap.reset();
     canvas.dataset.touching = 'false';
     updateHud();
   }
   if (drag && e.pointerId === drag.id) drag = null;
 });
 addEventListener('keyup', e => panKeys.delete(e.code));
-addEventListener('blur', () => panKeys.clear());
+addEventListener('blur', () => { panKeys.clear(); doubleTap.reset(); touchDrag = null; canvas.dataset.touching = 'false'; });
 canvas.addEventListener('contextmenu', e => e.preventDefault());
 addEventListener('keydown', e => {
   if (game.mode === 'play' && (e.code === 'F8' || e.code === 'KeyW')) { e.preventDefault(); game.winNow(); renderUi(); }
@@ -1361,7 +1346,7 @@ addEventListener('keydown', e => {
   if ((e.code === 'Space' || e.code === 'KeyE') && !(e.target instanceof HTMLButtonElement)) { e.preventDefault(); if (!e.repeat) perform(e.code === 'Space' ? 'punch' : 'grab'); }
 });
 function showLevelGroup() { const shown = shownLevel(); for (const l of LEVEL_IDS) levelGroups[l].visible = shown === l; }
-function suspendPage() { game.suspend(); renderUi(); }
+function suspendPage() { doubleTap.reset(); touchDrag = null; canvas.dataset.touching = 'false'; game.suspend(); renderUi(); }
 document.addEventListener('visibilitychange', () => { if (document.hidden) suspendPage(); });
 document.addEventListener('freeze', suspendPage);
 addEventListener('pagehide', suspendPage);
@@ -1371,6 +1356,7 @@ function startLevel(level: number) { game.reduced = !motion(); if (game.start(le
 function chrome() { return '<div class="topline"><div class="brand"><span>↗</span> ДВОР ДА ДЕЛО</div><div class="tag">РУКИ ДЛИННЕЕ. ДЕНЬ ЛУЧШЕ.</div></div>'; }
 
 function renderUi() {
+  if (game.mode !== 'play') { doubleTap.reset(); touchDrag = null; canvas.dataset.touching = 'false'; }
   const mode = game.mode;
   if (mode !== lastMode) { lastMode = mode; resize(); }
   applyLook(shownLevel());
@@ -1380,7 +1366,8 @@ function renderUi() {
     ui.innerHTML = chrome() + '<section class="panel"><div class="eyebrow">Потасовка на резиновых руках</div><h1>ДЛИННЫЕ<br><em>РУКИ.</em></h1><p>Сначала бар, потом улица. Задиры прячутся за пианино, стойкой, бочками и заборами, высовываются и замахиваются. Тянись, бей, бросай всё, что под рукой. Пса с нимбом не трогай.</p><div class="buttons"><button id="start" class="primary">В БАР →</button><button id="how" class="secondary">КАК ИГРАТЬ?</button></div><div class="fine">Без беготни. Только ловкость рук.</div></section><div class="stamp">100%<b>РАЗМАХ</b>0% СЕРЬЁЗНОСТИ</div><div class="footer"><span>БАР «ДЛИННЫЕ РУКИ» · УЛИЦА</span><span>РЕКОРД: ' + game.progress.best + ' / РЕЗИНОВЫЕ РУКИ 1930-х</span></div>';
     button('start', () => { game.mode = 'select'; renderUi(); });
     button('how', () => {
-      ui.innerHTML += '<div class="shade"></div><section class="panel centerpanel"><span class="note">ПАМЯТКА ДЛИННОРУКОГО</span><h2>Целься. Тянись.<br>Не трогай пса.</h2><p>Кулак летит ровно туда, куда ты целишься: никакого автоприцела. Задиры прячутся за укрытиями — бей, когда высунутся. У каждого своя полоска здоровья. Промах тоже тратит силы.</p><p>ЛКМ / пробел — удар. ПКМ / E — хватай предмет, затем бросай: он летит сам, по дуге. Улица широкая: стрелки, A/D, мышь у края экрана или свайп — камера едет. Пёс с нимбом — неприкосновенный.</p><button id="close" class="primary">ПОНЯТНО →</button></section>';
+      const controls = game.touch ? 'Веди пальцем — рука следует за ним. Через врага — удар, через предмет — захват другой рукой. С предметом: двойной тап рядом с врагом — бросок с лёгким локальным доведением. Один тап или свайп вверх предмет не бросает. У края улицы веди пальцем для движения камеры.' : 'ЛКМ / пробел — удар. ПКМ / E — хватай предмет, затем бросай: он летит сам, по дуге. Улица широкая: стрелки, A/D, мышь у края экрана или свайп — камера едет.';
+      ui.innerHTML += '<div class="shade"></div><section class="panel centerpanel"><span class="note">ПАМЯТКА ДЛИННОРУКОГО</span><h2>Целься. Тянись.<br>Не трогай пса.</h2><p>Кулак летит ровно туда, куда ты целишься. Задиры прячутся за укрытиями — бей, когда высунутся. У каждого своя полоска здоровья. Промах тоже тратит силы.</p><p>' + controls + ' Пёс с нимбом — неприкосновенный.</p><button id="close" class="primary">ПОНЯТНО →</button></section>';
       button('close', renderUi);
     });
   } else if (mode === 'select') {
@@ -1441,7 +1428,7 @@ let lastAim = '';
 function updateHud() {
   const enemies = game.actors.filter(t => t.kind === 'enemy');
   const labels = enemies.map(t => (t.x < -.5 ? 'слева' : t.x > .5 ? 'справа' : 'в центре') + (t.layer === 'foreground' ? ' (за укрытием рядом)' : t.layer === 'background' ? ' (в окне)' : ' (за забором)'));
-  canvas.setAttribute('aria-label', `Уровень ${game.level}. Задиры: ${labels.join(', ') || 'нет'}. Наведи прицел, затем нажми Удар.`);
+  canvas.setAttribute('aria-label', `Уровень ${game.level}. Задиры: ${labels.join(', ') || 'нет'}. ${game.touch ? 'Веди пальцем для удара и захвата другой рукой. С предметом: двойной тап рядом с врагом — бросок.' : 'Наведи прицел, затем нажми Удар.'}`);
   const aim = JSON.stringify(game.mode === 'play' ? game.actors.map(t => ({ id: t.id, kind: t.kind, layer: t.layer, frame: views.get(t.id)?.frame ?? null, at: (t.kind !== 'enemy' || t.age >= .4) ? clickablePoint(t) : null })) : []);
   if (aim !== lastAim) { lastAim = aim; canvas.dataset.aim = aim; }
   const set = (id: string, text: string) => { const el = document.getElementById(id); if (el) el.textContent = text; };
@@ -1466,7 +1453,7 @@ function updateHud() {
   const flights = String(game.flights.length);
   if (canvas.dataset.flights !== flights) canvas.dataset.flights = flights;
   if (game.touch && (!game.message || game.message.includes('Прицел стоит') || game.message.includes('Двор ждёт'))) {
-    game.message = game.held ? 'Свайп снизу вверх — бросок!' : 'Веди пальцем — бей задир! Через предмет — захват.';
+    game.message = game.held ? 'Двойной тап рядом с врагом — бросок!' : 'Веди пальцем — бей задир! Через предмет — захват.';
   }
   set('message', game.message);
   const energy = document.getElementById('energy'); if (energy) energy.style.width = game.stamina + '%';
