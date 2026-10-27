@@ -1114,36 +1114,50 @@ const contactTracker = new ContactHandTracker(0.35);
 const hitCooldowns = contactTracker.cooldowns;
 let touchDrag: { id: number; currentX: number; currentY: number; prevX: number; prevY: number; moved: boolean } | null = null;
 
-function executeTouchThrow(at: { readonly x: number; readonly y: number }, preferredTarget?: Actor, forceForward = false) {
+function findHoveredEnemy(x: number, y: number): Actor | null {
+  const ndc = screenAim(x, y);
+  if (ndc) {
+    const shot = shotAt(ndc);
+    if (shot.kind === 'enemy' || shot.kind === 'thug') {
+      const a = game.actors.find(t => t.id === shot.id);
+      if (a) return a;
+    }
+  }
+  const hits = currentHittables();
+  for (const t of game.actors) {
+    if (t.kind !== 'enemy' && t.kind !== 'thug') continue;
+    if (clickablePoint(t) === null) continue;
+    const h = hits.find(hit => hit.id === t.id);
+    if (h) {
+      const corners = [h.min.x, h.max.x].flatMap(cx => [h.min.y, h.max.y].flatMap(cy => [h.min.z, h.max.z].map(cz => toScreen({ x: cx, y: cy, z: cz }))));
+      const minX = Math.min(...corners.map(p => p.x)) - 8;
+      const maxX = Math.max(...corners.map(p => p.x)) + 8;
+      const minY = Math.min(...corners.map(p => p.y)) - 8;
+      const maxY = Math.max(...corners.map(p => p.y)) + 8;
+      if (x >= minX && x <= maxX && y >= minY && y <= maxY) return t;
+    }
+    const center = toScreen(pose(game.level, t, motion()));
+    if (Math.hypot(x - center.x, y - center.y) <= 42) return t;
+  }
+  return null;
+}
+
+function executeTouchThrow(at: { readonly x: number; readonly y: number }, preferredEnemy?: Actor, forceForward = false) {
   if (game.mode !== 'play' || !game.held) return;
-  const rect = canvas.getBoundingClientRect();
   const heldItem = game.held;
 
-  let targetEnemy: Actor | null = preferredTarget ?? null;
-  if (!targetEnemy && !forceForward) {
-    const candidates: AimCandidate<Actor>[] = game.actors
-      .filter(a => a.kind === 'enemy' || a.kind === 'thug')
-      .map(a => ({
-        entity: a,
-        screenPos: toScreen(pose(game.level, a, motion())),
-        isOccluded: clickablePoint(a) === null,
-      }));
+  const enemyToHit: Actor | null = preferredEnemy ?? (forceForward ? null : findHoveredEnemy(at.x, at.y));
+  if (!enemyToHit && !forceForward) return;
 
-    const maxRadiusPx = Math.max(150, rect.width * 0.22);
-    targetEnemy = selectLocalAimEnemy(at, { x: 0, y: 0 }, candidates, maxRadiusPx);
-  }
-
-  if (!targetEnemy && !forceForward) return;
-
-  let targetPoint: Vec3;
-  if (targetEnemy) {
-    const p = pose(game.level, targetEnemy, motion());
-    targetPoint = { x: p.x, y: p.y, z: p.z };
+  let aimPoint: Vec3;
+  if (enemyToHit) {
+    const p = pose(game.level, enemyToHit, motion());
+    aimPoint = { x: p.x, y: p.y, z: p.z };
   } else {
     const ndc = screenAim(at.x, at.y); if (!ndc) return;
     raycaster.setFromCamera(ndc, camera);
     const p = raycaster.ray.at(10, new THREE.Vector3());
-    targetPoint = { x: p.x, y: p.y, z: p.z };
+    aimPoint = { x: p.x, y: p.y, z: p.z };
   }
 
   const staminaBefore = game.stamina;
@@ -1151,12 +1165,12 @@ function executeTouchThrow(at: { readonly x: number; readonly y: number }, prefe
 
   raycaster.setFromCamera(new THREE.Vector2(0.45, -0.65), camera);
   const from = raycaster.ray.at(1.7, new THREE.Vector3());
-  const f = game.launch({ x: from.x, y: from.y, z: from.z }, targetPoint);
+  const f = game.launch({ x: from.x, y: from.y, z: from.z }, aimPoint);
   strikes.push({ action: 'grab', outcome: 'throw', kind: 'flight', id: f?.id ?? null, staminaBefore, staminaAfter: game.stamina });
   if (strikes.length > 20) strikes.shift();
 
   sound('toss');
-  const ndcTarget = new THREE.Vector3(targetPoint.x, targetPoint.y, targetPoint.z).project(camera);
+  const ndcTarget = new THREE.Vector3(aimPoint.x, aimPoint.y, aimPoint.z).project(camera);
   swing = {
     action: 'grab',
     throwing: true,
@@ -1164,7 +1178,7 @@ function executeTouchThrow(at: { readonly x: number; readonly y: number }, prefe
     resolved: true,
     spot: { x: (ndcTarget.x + 1) / 2, y: (1 - ndcTarget.y) / 2 },
     ray: aimRay(new THREE.Vector2(ndcTarget.x, ndcTarget.y)),
-    shot: { kind: 'whiff', distance: 6, point: targetPoint },
+    shot: { kind: 'whiff', distance: 6, point: aimPoint },
     phase: 0,
     held: heldItem,
     staminaBefore,
@@ -1364,28 +1378,9 @@ const endDrag = (e: PointerEvent) => {
   if (touchDrag && e.pointerId === touchDrag.id) {
     e.preventDefault();
     if (game.mode === 'play' && game.held !== null && !game.ultActive && !game.briefing) {
-      const ndc = screenAim(e.clientX, e.clientY);
-      let targetEnemy: Actor | null = null;
-      if (ndc) {
-        const shot = shotAt(ndc);
-        if (shot.kind === 'enemy' || shot.kind === 'thug') {
-          targetEnemy = game.actors.find(a => a.id === shot.id) ?? null;
-        }
-      }
-      if (!targetEnemy) {
-        const rect = canvas.getBoundingClientRect();
-        const candidates: AimCandidate<Actor>[] = game.actors
-          .filter(a => a.kind === 'enemy' || a.kind === 'thug')
-          .map(a => ({
-            entity: a,
-            screenPos: toScreen(pose(game.level, a, motion())),
-            isOccluded: clickablePoint(a) === null,
-          }));
-        const maxRadiusPx = Math.max(150, rect.width * 0.22);
-        targetEnemy = selectLocalAimEnemy({ x: e.clientX, y: e.clientY }, { x: 0, y: 0 }, candidates, maxRadiusPx);
-      }
-      if (targetEnemy) {
-        executeTouchThrow({ x: e.clientX, y: e.clientY }, targetEnemy);
+      const hoveredEnemy = findHoveredEnemy(e.clientX, e.clientY);
+      if (hoveredEnemy) {
+        executeTouchThrow({ x: e.clientX, y: e.clientY }, hoveredEnemy);
       }
     }
     touchDrag = null;
