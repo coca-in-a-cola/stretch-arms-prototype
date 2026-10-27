@@ -42,40 +42,200 @@ export class HitCooldownTracker {
   }
 }
 
-export const DOUBLE_TAP = { maxPressSec: .22, maxGapSec: .32, minGapSec: .035, movePx: 12, radiusPx: 28 } as const;
+export const HIT_COOLDOWN_SECONDS = 0.35;
 
-export class DoubleTapTracker {
-  private start: TouchPoint | null = null;
-  private previous: TouchPoint | null = null;
+export interface ContactEntity {
+  id?: number | string;
+  kind: 'enemy' | 'thug' | 'prop' | 'friend' | 'dog' | 'cover' | 'herald' | 'flyer' | 'whiff' | 'outside';
+  screenPos?: { x: number; y: number };
+  point?: { x: number; y: number; z: number };
+  propKind?: string;
+}
 
-  constructor(readonly bounds: { readonly [K in keyof typeof DOUBLE_TAP]: number } = DOUBLE_TAP) {}
+export type ContactActionType =
+  | 'punch'
+  | 'grab'
+  | 'sweep_throw'
+  | 'release_throw'
+  | 'chain_swap'
+  | 'scold'
+  | 'cover'
+  | 'tear_flyer'
+  | 'offend_herald'
+  | 'none'
+  | 'cooldown';
 
-  begin(point: TouchPoint, eligible: boolean): void {
-    if (!eligible || this.start) { this.reset(); return; }
-    this.start = point;
+export interface ContactDecision {
+  action: ContactActionType;
+  entity?: ContactEntity;
+  heldProp?: string | null;
+  point?: { x: number; y: number };
+}
+
+export class ContactHandTracker {
+  private activeTouchId: number | null = null;
+  private lastPos: { x: number; y: number } | null = null;
+  readonly cooldowns: HitCooldownTracker;
+
+  constructor(cooldownSeconds = HIT_COOLDOWN_SECONDS) {
+    this.cooldowns = new HitCooldownTracker(cooldownSeconds);
   }
 
-  move(point: TouchPoint): void {
-    if (this.start && Math.hypot(point.x - this.start.x, point.y - this.start.y) > this.bounds.movePx) this.reset();
+  get isTouching(): boolean {
+    return this.activeTouchId !== null;
   }
 
-  end(point: TouchPoint, eligible: boolean): boolean {
-    this.move(point);
-    const start = this.start;
-    this.start = null;
-    if (!eligible || !start || point.time - start.time > this.bounds.maxPressSec || point.time < start.time) {
-      this.reset(); return false;
+  get touchId(): number | null {
+    return this.activeTouchId;
+  }
+
+  begin(id: number, pos: { x: number; y: number }): void {
+    this.activeTouchId = id;
+    this.lastPos = { ...pos };
+  }
+
+  updatePos(pos: { x: number; y: number }): void {
+    this.lastPos = { ...pos };
+  }
+
+  getLastPos(): { x: number; y: number } | null {
+    return this.lastPos ? { ...this.lastPos } : null;
+  }
+
+  evaluateContact(
+    entity: ContactEntity,
+    held: string | null,
+    now: number,
+    point?: { x: number; y: number }
+  ): ContactDecision {
+    if (entity.kind === 'enemy' || entity.kind === 'thug') {
+      const subjectId = entity.id ?? 'enemy';
+      if (held !== null) {
+        if (this.cooldowns.canHit(subjectId, now)) {
+          this.cooldowns.recordHit(subjectId, now);
+          return { action: 'sweep_throw', entity, heldProp: held, point };
+        }
+        return { action: 'cooldown', entity, heldProp: held, point };
+      }
+      if (this.cooldowns.canHit(subjectId, now)) {
+        this.cooldowns.recordHit(subjectId, now);
+        return { action: 'punch', entity, heldProp: null, point };
+      }
+      return { action: 'cooldown', entity, heldProp: null, point };
     }
-    const previous = this.previous;
-    this.previous = point;
-    if (!previous) return false;
-    const gap = start.time - previous.time;
-    if (gap < this.bounds.minGapSec || gap > this.bounds.maxGapSec || Math.hypot(point.x - previous.x, point.y - previous.y) > this.bounds.radiusPx) return false;
-    this.reset();
-    return true;
+
+    if (entity.kind === 'prop') {
+      const propId = entity.id ?? 'prop';
+      if (held === null) {
+        if (this.cooldowns.canHit(propId, now)) {
+          this.cooldowns.recordHit(propId, now);
+          return { action: 'grab', entity, heldProp: null, point };
+        }
+        return { action: 'cooldown', entity, heldProp: null, point };
+      } else {
+        if (this.cooldowns.canHit(propId, now)) {
+          this.cooldowns.recordHit(propId, now);
+          return { action: 'chain_swap', entity, heldProp: held, point };
+        }
+        return { action: 'cooldown', entity, heldProp: held, point };
+      }
+    }
+
+    if (entity.kind === 'dog' || entity.kind === 'friend') {
+      const id = entity.id ?? entity.kind;
+      if (this.cooldowns.canHit(id, now)) {
+        this.cooldowns.recordHit(id, now);
+        return { action: 'scold', entity, heldProp: held, point };
+      }
+      return { action: 'cooldown', entity, heldProp: held, point };
+    }
+
+    if (entity.kind === 'cover') {
+      const id = entity.id ?? 'cover';
+      if (this.cooldowns.canHit(id, now)) {
+        this.cooldowns.recordHit(id, now);
+        return { action: 'cover', entity, heldProp: held, point };
+      }
+      return { action: 'cooldown', entity, heldProp: held, point };
+    }
+
+    if (entity.kind === 'flyer') {
+      return { action: 'tear_flyer', entity, heldProp: held, point };
+    }
+
+    if (entity.kind === 'herald') {
+      if (this.cooldowns.canHit('herald', now)) {
+        this.cooldowns.recordHit('herald', now);
+        return { action: 'offend_herald', entity, heldProp: held, point };
+      }
+      return { action: 'cooldown', entity, heldProp: held, point };
+    }
+
+    return { action: 'none', entity, heldProp: held, point };
   }
 
-  reset(): void { this.start = null; this.previous = null; }
+  evaluateSegment(
+    p0: { x: number; y: number },
+    p1: { x: number; y: number },
+    resolveEntity: (pt: { x: number; y: number }) => ContactEntity,
+    getHeld: () => string | null,
+    now: number,
+    stepPx = 16,
+    onAction?: (decision: ContactDecision) => void
+  ): ContactDecision[] {
+    const pts = sweepSegment(p0, p1, stepPx);
+    const results: ContactDecision[] = [];
+    for (const pt of pts) {
+      const held = getHeld();
+      const entity = resolveEntity(pt);
+      const decision = this.evaluateContact(entity, held, now, pt);
+      if (decision.action !== 'none' && decision.action !== 'cooldown') {
+        results.push(decision);
+        onAction?.(decision);
+      }
+    }
+    this.lastPos = { ...p1 };
+    return results;
+  }
+
+  evaluateRelease<T>(
+    point: { x: number; y: number },
+    held: string | null,
+    hoveredEntity: ContactEntity | null,
+    candidates?: readonly AimCandidate<T>[],
+    maxRadiusPx = 160
+  ): ContactDecision & { aimEnemy?: T | null } {
+    if (held === null) {
+      this.reset();
+      return { action: 'none', point };
+    }
+
+    if (hoveredEntity && (hoveredEntity.kind === 'enemy' || hoveredEntity.kind === 'thug')) {
+      this.reset();
+      return { action: 'release_throw', entity: hoveredEntity, heldProp: held, point };
+    }
+
+    if (candidates && candidates.length > 0) {
+      const aimEnemy = selectLocalAimEnemy(point, { x: 0, y: 0 }, candidates, maxRadiusPx);
+      if (aimEnemy) {
+        this.reset();
+        return { action: 'release_throw', heldProp: held, point, aimEnemy };
+      }
+    }
+
+    this.reset();
+    return { action: 'none', heldProp: held, point };
+  }
+
+  reset(): void {
+    this.activeTouchId = null;
+    this.lastPos = null;
+  }
+
+  resetAll(): void {
+    this.reset();
+    this.cooldowns.clear();
+  }
 }
 
 export interface AimCandidate<T = unknown> {

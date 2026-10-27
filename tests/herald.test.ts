@@ -20,11 +20,12 @@ describe('the herald briefing', () => {
     expect(two).not.toEqual(one);
     expect(briefed(2).briefing!.flyers.map(f => f.title)).toEqual(flyersFor(2, false).map(f => f.title));
   });
-  test('touch players get touch wording (tap / swipe / the on-screen buttons), desktop players get mouse and keys', () => {
+  test('touch players get touch wording (contact-driven hands), desktop players get mouse and keys', () => {
     const t1 = allText(1, true), t2 = allText(2, true);
-    expect(t1).toContain('Тапни'); expect(t1).toContain('УДАР'); expect(t1).toContain('ХВАТАЙ'); expect(t1).not.toContain('ЛКМ');
-    expect(t2).toContain('Свайп'); expect(t2).not.toContain('Стрелки');
-    expect(briefed(1, { touch: true }).briefing!.flyers[0].lines.join(' ')).toContain('Тапни');
+    expect(t1).toContain('Веди рукой'); expect(t1).toContain('удар'); expect(t1).toContain('захват'); expect(t1).toContain('бросок'); expect(t1).not.toContain('ЛКМ');
+    expect(t1).not.toContain('Двойной тап');
+    expect(t2).toContain('к краю'); expect(t2).not.toContain('Свайп'); expect(t2).not.toContain('Стрелки');
+    expect(briefed(1, { touch: true }).briefing!.flyers[0].lines.join(' ')).toContain('Веди рукой');
   });
   test('punching a flyer tears it (free of stamina) and advances to the next one; the last one sends him off', () => {
     const g = ready(briefed(1)), n = g.briefing!.flyers.length;

@@ -2,8 +2,9 @@ import { describe, expect, test } from 'bun:test';
 import {
   sweepSegment,
   HitCooldownTracker,
-  DoubleTapTracker,
+  ContactHandTracker,
   selectLocalAimEnemy,
+  type ContactEntity,
   type TouchPoint,
   type AimCandidate,
 } from '../src/gestures';
@@ -76,71 +77,173 @@ describe('gestures: HitCooldownTracker', () => {
   });
 });
 
-describe('gestures: DoubleTapTracker', () => {
-  const p = (time: number, x = 200, y = 200): TouchPoint => ({ time, x, y });
-  function tap(tracker: DoubleTapTracker, time: number, x = 200, eligible = true) {
-    tracker.begin(p(time, x), eligible);
-    return tracker.end(p(time + .04, x), eligible);
-  }
+describe('gestures: ContactHandTracker (contact-driven mobile hands)', () => {
+  const enemyTarget: ContactEntity = { id: 10, kind: 'enemy', screenPos: { x: 200, y: 150 } };
+  const thugTarget: ContactEntity = { id: 11, kind: 'thug', screenPos: { x: 250, y: 180 } };
+  const propBottle: ContactEntity = { id: 20, kind: 'prop', propKind: 'bottle', screenPos: { x: 120, y: 220 } };
+  const propStool: ContactEntity = { id: 21, kind: 'prop', propKind: 'stool', screenPos: { x: 300, y: 220 } };
+  const dogTarget: ContactEntity = { id: 30, kind: 'dog', screenPos: { x: 180, y: 280 } };
+  const coverTarget: ContactEntity = { id: 'piano', kind: 'cover', screenPos: { x: 150, y: 200 } };
+  const whiffTarget: ContactEntity = { kind: 'whiff', screenPos: { x: 100, y: 100 } };
 
-  test('accepts two deliberate nearby taps only once', () => {
-    const tracker = new DoubleTapTracker();
-    expect(tap(tracker, 1)).toBe(false);
-    expect(tap(tracker, 1.16, 210)).toBe(true);
-    expect(tracker.end(p(1.21), true)).toBe(false);
-    expect(tap(tracker, 1.30)).toBe(false);
+  test('empty punch: striking an enemy with empty hands triggers punch', () => {
+    const tracker = new ContactHandTracker(0.35);
+    tracker.begin(1, { x: 190, y: 150 });
+    const decision = tracker.evaluateContact(enemyTarget, null, 1.0, { x: 200, y: 150 });
+    expect(decision.action).toBe('punch');
+    expect(decision.entity?.id).toBe(10);
+    expect(decision.heldProp).toBeNull();
   });
 
-  test.each([.04, .5])('rejects duplicate or late tap gap %s', gap => {
-    const tracker = new DoubleTapTracker();
-    tap(tracker, 1);
-    expect(tap(tracker, 1 + gap)).toBe(false);
+  test('empty punch: hit cooldown suppresses repeated punch on same enemy in 1 frame', () => {
+    const tracker = new ContactHandTracker(0.35);
+    tracker.begin(1, { x: 190, y: 150 });
+    const first = tracker.evaluateContact(enemyTarget, null, 1.0);
+    expect(first.action).toBe('punch');
+    const second = tracker.evaluateContact(enemyTarget, null, 1.05);
+    expect(second.action).toBe('cooldown');
+    const third = tracker.evaluateContact(enemyTarget, null, 1.40);
+    expect(third.action).toBe('punch');
   });
 
-  test('rejects distant second tap', () => {
-    const tracker = new DoubleTapTracker();
-    tap(tracker, 1);
-    expect(tap(tracker, 1.16, 240)).toBe(false);
+  test('empty punch: can strike distinct enemies in the same continuous sweep', () => {
+    const tracker = new ContactHandTracker(0.35);
+    const hit1 = tracker.evaluateContact(enemyTarget, null, 1.0);
+    const hit2 = tracker.evaluateContact(thugTarget, null, 1.02);
+    expect(hit1.action).toBe('punch');
+    expect(hit2.action).toBe('punch');
   });
 
-  test.each([[240, 200], [200, 120], [200, 280]])('rejects drag through %s,%s even after returning', (x, y) => {
-    const tracker = new DoubleTapTracker();
-    tap(tracker, 1);
-    tracker.begin(p(1.16), true);
-    tracker.move(p(1.18, x, y));
-    expect(tracker.end(p(1.20), true)).toBe(false);
-    expect(tap(tracker, 1.32)).toBe(false);
+  test('prop pickup: crossing accessible prop with empty hands triggers grab', () => {
+    const tracker = new ContactHandTracker(0.35);
+    const grab = tracker.evaluateContact(propBottle, null, 1.0);
+    expect(grab.action).toBe('grab');
+    expect(grab.entity?.id).toBe(20);
+    expect(grab.heldProp).toBeNull();
   });
 
-  test('rejects long press and clears earlier tap', () => {
-    const tracker = new DoubleTapTracker();
-    tap(tracker, 1);
-    tracker.begin(p(1.16), true);
-    expect(tracker.end(p(1.4), true)).toBe(false);
-    expect(tap(tracker, 1.5)).toBe(false);
+  test('carrying sweep throw: crossing enemy with prop held launches throw at that enemy', () => {
+    const tracker = new ContactHandTracker(0.35);
+    const decision = tracker.evaluateContact(enemyTarget, 'bottle', 1.0, { x: 200, y: 150 });
+    expect(decision.action).toBe('sweep_throw');
+    expect(decision.entity?.id).toBe(10);
+    expect(decision.heldProp).toBe('bottle');
   });
 
-  test('cancel resets pending and active taps', () => {
-    const tracker = new DoubleTapTracker();
-    tap(tracker, 1);
-    tracker.begin(p(1.16), true);
+  test('carrying sweep through empty space does not accidentally throw', () => {
+    const tracker = new ContactHandTracker(0.35);
+    const decision = tracker.evaluateContact(whiffTarget, 'bottle', 1.0, { x: 100, y: 100 });
+    expect(decision.action).toBe('none');
+    expect(decision.heldProp).toBe('bottle');
+  });
+
+  test('carrying release throw: pointerup directly over an enemy triggers release throw', () => {
+    const tracker = new ContactHandTracker(0.35);
+    tracker.begin(1, { x: 195, y: 150 });
+    const release = tracker.evaluateRelease({ x: 200, y: 150 }, 'bottle', enemyTarget);
+    expect(release.action).toBe('release_throw');
+    expect(release.entity?.id).toBe(10);
+    expect(release.heldProp).toBe('bottle');
+    expect(tracker.isTouching).toBe(false);
+  });
+
+  test('carrying release throw: pointerup near an enemy triggers aim-assisted release throw', () => {
+    const tracker = new ContactHandTracker(0.35);
+    const candidates = [
+      { entity: { id: 10, name: 'Bully' }, screenPos: { x: 210, y: 155 } },
+    ];
+    const release = tracker.evaluateRelease({ x: 200, y: 150 }, 'bottle', null, candidates, 160);
+    expect(release.action).toBe('release_throw');
+    expect(release.aimEnemy).toEqual({ id: 10, name: 'Bully' });
+    expect(release.heldProp).toBe('bottle');
+  });
+
+  test('carrying release over empty space retains prop and does not throw', () => {
+    const tracker = new ContactHandTracker(0.35);
+    tracker.begin(1, { x: 50, y: 50 });
+    const candidates = [
+      { entity: { id: 10, name: 'Far Enemy' }, screenPos: { x: 600, y: 600 } },
+    ];
+    const release = tracker.evaluateRelease({ x: 50, y: 50 }, 'bottle', null, candidates, 160);
+    expect(release.action).toBe('none');
+    expect(release.heldProp).toBe('bottle');
+    expect(tracker.isTouching).toBe(false);
+  });
+
+  test('empty hand release over enemy does nothing', () => {
+    const tracker = new ContactHandTracker(0.35);
+    const release = tracker.evaluateRelease({ x: 200, y: 150 }, null, enemyTarget);
+    expect(release.action).toBe('none');
+  });
+
+  test('carrying chain prop swap: crossing second prop launches held prop and grabs new prop', () => {
+    const tracker = new ContactHandTracker(0.35);
+    const swap = tracker.evaluateContact(propStool, 'bottle', 1.0, { x: 300, y: 220 });
+    expect(swap.action).toBe('chain_swap');
+    expect(swap.heldProp).toBe('bottle');
+    expect(swap.entity?.id).toBe(21);
+  });
+
+  test('non-enemy interactions: friends, dogs, and covers are respected', () => {
+    const tracker = new ContactHandTracker(0.35);
+    const scold = tracker.evaluateContact(dogTarget, null, 1.0);
+    expect(scold.action).toBe('scold');
+
+    const cover = tracker.evaluateContact(coverTarget, null, 1.0);
+    expect(cover.action).toBe('cover');
+  });
+
+  test('safety resets: reset() clears touch contact but preserves cooldowns; resetAll() clears both', () => {
+    const tracker = new ContactHandTracker(0.35);
+    tracker.begin(42, { x: 100, y: 100 });
+    expect(tracker.isTouching).toBe(true);
+    expect(tracker.touchId).toBe(42);
+    tracker.cooldowns.recordHit(10, 1.0);
+
     tracker.reset();
-    expect(tracker.end(p(1.2), true)).toBe(false);
-    expect(tap(tracker, 1.3)).toBe(false);
+    expect(tracker.isTouching).toBe(false);
+    expect(tracker.touchId).toBeNull();
+    expect(tracker.cooldowns.canHit(10, 1.1)).toBe(false);
+
+    tracker.resetAll();
+    expect(tracker.cooldowns.canHit(10, 1.1)).toBe(true);
   });
 
-  test('pickup tap cannot seed throw sequence', () => {
-    const tracker = new DoubleTapTracker();
-    tracker.begin(p(1), false);
-    expect(tracker.end(p(1.04), true)).toBe(false);
-    expect(tap(tracker, 1.16)).toBe(false);
-    expect(tap(tracker, 1.3)).toBe(true);
-  });
+  test('evaluateSegment chain: pickup -> throw -> punch chain in continuous motion', () => {
+    const tracker = new ContactHandTracker(0.35);
+    let heldItem: string | null = null;
 
-  test('empty-hand double tap cannot throw', () => {
-    const tracker = new DoubleTapTracker();
-    expect(tap(tracker, 1, 200, false)).toBe(false);
-    expect(tap(tracker, 1.16, 200, false)).toBe(false);
+    const step1 = tracker.evaluateSegment(
+      { x: 100, y: 220 },
+      { x: 140, y: 220 },
+      pt => (Math.abs(pt.x - 120) < 10 ? propBottle : whiffTarget),
+      () => heldItem,
+      1.0
+    );
+    expect(step1.length).toBe(1);
+    expect(step1[0].action).toBe('grab');
+    heldItem = 'bottle';
+
+    const step2 = tracker.evaluateSegment(
+      { x: 150, y: 150 },
+      { x: 220, y: 150 },
+      pt => (Math.abs(pt.x - 200) < 10 ? enemyTarget : whiffTarget),
+      () => heldItem,
+      1.1
+    );
+    expect(step2.length).toBe(1);
+    expect(step2[0].action).toBe('sweep_throw');
+    heldItem = null;
+
+    const step3 = tracker.evaluateSegment(
+      { x: 220, y: 180 },
+      { x: 260, y: 180 },
+      pt => (Math.abs(pt.x - 250) < 10 ? thugTarget : whiffTarget),
+      () => heldItem,
+      1.2
+    );
+    expect(step3.length).toBe(1);
+    expect(step3[0].action).toBe('punch');
   });
 });
 
