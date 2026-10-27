@@ -1,0 +1,36 @@
+#app { position: fixed; background: #dddcd3; }
+#safe-probe { position: absolute; visibility: hidden; padding: env(safe-area-inset-top,0px) env(safe-area-inset-right,0px) env(safe-area-inset-bottom,0px) env(safe-area-inset-left,0px); pointer-events: none; }
+#stage { position: absolute; left: var(--stage-x); top: var(--stage-y); width: var(--stage-w); height: var(--stage-h); overflow: hidden; container-type: size; background: #202320; }
+#stage #scene, #stage #arm, #stage #film, #stage #herald { position: absolute; inset: 0; width: 100%; height: 100%; }
+#app .game-rail { position: absolute; top: max(var(--safe-top),var(--stage-y)); height: var(--stage-h); width: calc(var(--stage-x) - var(--safe-left)); padding: 8px; display: flex; flex-direction: column; align-items: stretch; gap: 10px; overflow: auto; pointer-events: none; }
+#app .rail-left { left: var(--safe-left); }
+#app .rail-right { right: var(--safe-right); width: calc(100% - var(--stage-x) - var(--stage-w) - var(--safe-right)); }
+#app .game-rail .hudbox { padding: 8px; min-width: 0; }
+#app .game-rail .hearts { font-size: clamp(14px,1.9vw,24px); letter-spacing: 0; }
+#app .game-rail .energy { width: 100%; }
+#app .game-rail .small { font-size: 10px; letter-spacing: 0; }
+#app .game-rail .score { font-size: 24px; }
+#app .game-rail .progress, #app .game-rail .message, #app .game-rail .ultmeter, #app .game-rail .controls, #app .game-rail .panhint { position: static; transform: none; width: auto; max-width: 100%; margin: 0; }
+#app .game-rail .progress, #app .game-rail .message { font-size: 11px; padding: 6px; letter-spacing: 0; overflow-wrap: anywhere; }
+#app .game-rail .controls { display: flex; flex-direction: column; padding: 0; gap: 10px; }
+#app .game-rail .controls button { min-width: 0; min-height: 44px; padding: 8px 4px; font-size: 12px; }
+#app .game-rail .controls small { font-size: 9px; }
+#app .game-rail .ultmeter { flex-direction: column; padding: 6px; }
+#app .game-rail .ultmeter[hidden] { display: none; }
+#app .game-rail .ultmeter span { width: 100%; }
+#app .game-rail .pause { min-height: 44px; flex-shrink: 0; align-self: center; }
+#app .game-rail .panhint { align-self: center; width: 30px; }
+#app[data-stacked=true] .game-rail { left: var(--safe-left); right: var(--safe-right); width: auto; height: auto; max-height: calc((100% - var(--stage-h))/2 - 12px); flex-direction: row; flex-wrap: wrap; justify-content: center; align-items: center; }
+#app[data-stacked=true] .rail-left { top: max(var(--safe-top),calc(var(--stage-y) - 112px)); }
+#app[data-stacked=true] .rail-right { top: calc(var(--stage-y) + var(--stage-h) + 8px); }
+#app[data-stacked=true] .game-rail .message { width: 100%; }
+#app[data-stacked=true] .game-rail .controls { flex-direction: row; }
+#app .game-rail .hudbox, #app .game-rail .progress, #app .game-rail .message { flex-shrink: 0; }
+#stage .hd-stage { --hw: min(108cqh,74cqw); left: 10%; bottom: -5cqh; }
+#stage .hd-flyer, #stage .hd-flyer[data-art=wide] { width: min(46cqw,310px); right: -30%; left: auto; top: 2%; }
+#stage .hd-text, #stage .hd-flyer[data-art=wide] .hd-text { inset: 4% 6%; padding: 5px; gap: 2px; }
+#stage .hd-text h3, #stage .hd-flyer[data-art=wide] .hd-text h3 { font-size: clamp(13px,6cqw,22px); }
+#stage .hd-text p, #stage .hd-flyer[data-art=wide] .hd-text p { font-size: clamp(10px,4.6cqw,16px); line-height: 1.16; }
+#stage .hd-text small, #stage .hd-flyer[data-art=wide] .hd-text small { font-size: 9px; }
+#stage .hd-skip { position: absolute; top: auto; bottom: 8px; right: 8px; min-height: 44px; padding: 6px 10px; font-size: 12px; }
+#stage .hd-skip small { font-size: 9px; }

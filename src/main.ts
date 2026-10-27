@@ -5,6 +5,7 @@ import { resolveShot, type Hittable, type Shot, type Vec3 } from './aim';
 import { LEVELS, BODY, SKIN_INSET, WINDUP, YARD_X, ALLEY_X, LAST_LEVEL, clampPan, pose, dogWalk, dogAscent, bodyOf, hittables, cameraFor, onLanding, type Cover, type BodyKind, type Skin } from './layout';
 import { FRIEND_MAD, THUG, friendPose, type FriendKind, type ThugKind } from './friends';
 import './style.css';
+import { fitStage, screenToStage, ndcToScreen, stageToScreen } from './viewport';
 import { heraldView } from './heraldView';
 import { makeStreet } from './street';
 import { makeBar } from './bar';
@@ -15,12 +16,13 @@ import { LOOKS, greyscaleWorld, greyCanvas, greyColor } from './palette';
 import { armMetrics, restPose, punchPose, sideFor, drawArm as inkArm, type Avoid, type Pt } from './arm';
 import { sweepSegment, HitCooldownTracker, DoubleTapTracker, selectLocalAimEnemy, type AimCandidate } from './gestures';
 import { reducedMotion, unlockAudio, sound, trickle, ragtime, settingsUi, bindSettings } from './preferences';
+import './stage.css';
 
 let saved = loadProgress(() => null);
 try { saved = loadProgress(k => localStorage.getItem(k)); } catch { /* storage blocked: fresh progress */ }
 const game = new Game(saved, p => { try { localStorage.setItem(PROGRESS_KEY, JSON.stringify(p)); } catch { game.message = 'Сохранение недоступно в этом браузере.'; } });
 const app = document.querySelector<HTMLDivElement>('#app')!;
-app.innerHTML = '<canvas id="scene" aria-label="Трёхмерный двор и задиры"></canvas><div id="film" aria-hidden="true"></div><div id="herald" hidden></div><canvas id="arm" aria-hidden="true"></canvas><div id="ui"></div><div id="orientation-prompt" class="orientation-overlay" hidden></div>';
+app.innerHTML = '<div id="safe-probe"></div><div id="stage"><canvas id="scene" aria-label="Трёхмерный двор и задиры"></canvas><div id="film" aria-hidden="true"></div><div id="herald" hidden></div><canvas id="arm" aria-hidden="true"></canvas></div><div id="ui"></div><div id="orientation-prompt" class="orientation-overlay" hidden></div>';
 const ui = document.querySelector<HTMLDivElement>('#ui')!;
 const orientationOverlay = document.querySelector<HTMLDivElement>('#orientation-prompt');
 let portraitBypassed = false;
@@ -663,33 +665,53 @@ const strikes: { action: Action; outcome: Outcome; kind: string; id: number | st
 /** Horizontal camera pan along wide levels (world units; 0 = centre). Aim always raycasts from the real camera. */
 let pan = 0, panVel = 0;
 function viewportSize() {
-  const vv = window.visualViewport;
-  const w = vv ? Math.round(vv.width) : window.innerWidth;
-  const h = vv ? Math.round(vv.height) : window.innerHeight;
-  return { w: Math.max(1, w), h: Math.max(1, h) };
+  return { w: 960, h: 540 };
 }
 function resize() {
-  const { w, h } = viewportSize();
-  renderer.setSize(w, h);
-  const rig = cameraFor(w, h, game.mode === 'menu' || game.mode === 'select' ? 0 : pan);
+  cancelContact();
+  const vv = window.visualViewport;
+  const view = { left: vv?.offsetLeft ?? 0, top: vv?.offsetTop ?? 0, width: vv?.width ?? innerWidth, height: vv?.height ?? innerHeight };
+  const safe = getComputedStyle(document.getElementById('safe-probe')!);
+  const rect = fitStage(view, { left: parseFloat(safe.paddingLeft), top: parseFloat(safe.paddingTop), right: parseFloat(safe.paddingRight), bottom: parseFloat(safe.paddingBottom) });
+  app.style.cssText = `left:${view.left}px;top:${view.top}px;width:${view.width}px;height:${view.height}px;--stage-x:${rect.left - view.left}px;--stage-y:${rect.top - view.top}px;--stage-w:${rect.width}px;--stage-h:${rect.height}px;--safe-left:${safe.paddingLeft};--safe-right:${safe.paddingRight};--safe-top:${safe.paddingTop};--safe-bottom:${safe.paddingBottom}`;
+  app.dataset.stacked = String(rect.stacked);
+  const w = rect.width, h = rect.height;
+  const dpr = Math.min(devicePixelRatio || 1, 2);
+  renderer.setPixelRatio(dpr); renderer.setSize(w, h, false);
+  const rig = cameraFor(960, 540, game.mode === 'menu' || game.mode === 'select' ? 0 : pan);
   camera.aspect = w / h; camera.fov = rig.fov; camera.updateProjectionMatrix();
   camera.position.set(rig.position.x, rig.position.y, rig.position.z); camera.lookAt(rig.look.x, rig.look.y, rig.look.z);
   if (game.mode === 'menu' || game.mode === 'select') { camera.position.x -= w < 650 ? 0 : 1.2; camera.lookAt(rig.look.x - (w < 650 ? 0 : 1.8), rig.look.y, rig.look.z); }
   camera.updateMatrixWorld();
-  const dpr = Math.min(devicePixelRatio || 1, 2); armCanvas.width = Math.round(w * dpr); armCanvas.height = Math.round(h * dpr);
+  armCanvas.width = Math.round(w * dpr); armCanvas.height = Math.round(h * dpr);
+  updateCrosshair();
 }
 addEventListener('resize', () => { resize(); measureControls(); checkOrientation(); });
 addEventListener('orientationchange', () => { resize(); measureControls(); checkOrientation(); });
 if (window.visualViewport) {
   window.visualViewport.addEventListener('resize', () => { resize(); measureControls(); checkOrientation(); });
+  window.visualViewport.addEventListener('scroll', () => { resize(); measureControls(); });
+}
+
+function screenAim(x: number, y: number) {
+  const p = screenToStage(canvas.getBoundingClientRect(), { x, y });
+  return p ? new THREE.Vector2(p.ndcX, p.ndcY) : null;
+}
+function screenShot(x: number, y: number) {
+  const ndc = screenAim(x, y);
+  return ndc ? shotAt(ndc) : null;
+}
+function stageFraction(x: number, y: number) {
+  const r = canvas.getBoundingClientRect();
+  return stageToScreen(r, { x: x * r.width, y: y * r.height });
 }
 
 function updateCrosshair() {
   const crosshair = document.querySelector<HTMLElement>('.crosshair');
   if (crosshair) {
-    const rect = canvas.getBoundingClientRect();
-    crosshair.style.left = Math.round(rect.left + (pointer.x + 1) * 0.5 * rect.width) + 'px';
-    crosshair.style.top = Math.round(rect.top + (1 - pointer.y) * 0.5 * rect.height) + 'px';
+    const p = ndcToScreen(canvas.getBoundingClientRect(), pointer), a = app.getBoundingClientRect();
+    crosshair.style.left = (p.x - a.left) + 'px';
+    crosshair.style.top = (p.y - a.top) + 'px';
   }
 }
 const motion = () => !reducedMotion();
@@ -727,16 +749,17 @@ function callout(text: string, x: number, y: number, tone: 'combo' | 'bad' | 'po
   const el = document.createElement('div'); el.className = 'callout ' + tone; el.textContent = text;
   ui.append(el);
   // Reserve room for the 1.15x pop and rotation, including wrapped mobile captions.
-  const halfWidth = Math.min(innerWidth / 2, el.offsetWidth * .62 + 16);
+  const rect = canvas.getBoundingClientRect(), origin = app.getBoundingClientRect();
+  const halfWidth = Math.min(rect.width / 2, el.offsetWidth * .62 + 16);
   const halfHeight = el.offsetHeight * .7 + 16;
-  el.style.left = Math.round(THREE.MathUtils.clamp(x, halfWidth, innerWidth - halfWidth)) + 'px';
-  el.style.top = Math.round(THREE.MathUtils.clamp(y, Math.max(120, halfHeight), Math.max(120, innerHeight - Math.max(110, halfHeight)))) + 'px';
+  el.style.left = (THREE.MathUtils.clamp(x, rect.left + halfWidth, rect.right - halfWidth) - origin.left) + 'px';
+  el.style.top = (THREE.MathUtils.clamp(y, rect.top + halfHeight, rect.bottom - halfHeight) - origin.top) + 'px';
   setTimeout(() => el.remove(), 900);
 }
 const COMBO_WORDS = ['', '', 'ДВОЙНОЙ!', 'ТРОЙНОЙ!', 'РАЗМАШИСТО!', 'НЕУДЕРЖИМ!'];
 function drainEvents(at?: { x: number; y: number }) {
   for (const e of game.events) {
-    const v = views.get(e.id); const p = at ?? (v ? toScreen({ x: v.group.position.x, y: v.group.position.y + 1.2, z: v.group.position.z }) : { x: innerWidth / 2, y: innerHeight / 2 });
+    const v = views.get(e.id); const p = at ?? (v ? toScreen({ x: v.group.position.x, y: v.group.position.y + 1.2, z: v.group.position.z }) : stageFraction(.5, .5));
     if (e.type === 'hurt' && e.amount) { const t = game.actors.find(a => a.id === e.id) ?? (v ? { x: v.group.position.x, y: v.group.position.y, z: v.group.position.z } : null); if (t) { const h = v ? barAnchor(v) : { x: t.x, y: t.y + 2, z: t.z ?? 0 }; damageNumbers.push({ ...h, amount: e.amount, age: 0, big: e.amount > 10 }); } if (v) v.flash = 1; }
     if (e.type === 'ko' || e.type === 'smash') { exits.set(e.id, e.type === 'ko' && e.how && e.how !== 'spin' ? e.how : 'ko'); if (e.type === 'ko') sound('ko'); }
     if (e.type === 'ko' && e.who) callout(['ШМЯК!', 'БРЫСЬ!', 'ПШЁЛ!'][e.id % 3], p.x, p.y - 20, 'pop');
@@ -749,13 +772,13 @@ function drainEvents(at?: { x: number; y: number }) {
     if (e.type === 'nuisance') {
       exits.set(e.id, 'attack');
       if (e.who === 'rat') { sound('steal'); callout('КРЫСА СПЁРЛА СИЛЫ! −35', p.x, p.y, 'bad'); }
-      else if (e.who === 'gang') { sound('splat'); splat(); callout('ПЛЮХ!', innerWidth / 2, innerHeight * .4, 'bad'); }
+      else if (e.who === 'gang') { sound('splat'); splat(); const p = stageFraction(.5, .4); callout('ПЛЮХ!', p.x, p.y, 'bad'); }
       else { sound('zing'); callout('ЩЁЛК! −♥', p.x, p.y, 'bad'); if (motion()) shake = .2; }
     }
     if (e.type === 'squeak') { sound('squeak'); if (e.point) pop('squeak', e.point, .8); if (e.id) callout(`ПИ-И-ИСК! КОМБО +${GAGS.chicken.combo}`, p.x, p.y - 50, 'combo'); }
     if (e.type === 'blind') { sound('splat'); if (e.point) { pop('splat', e.point, .9); shatter(e.point, ['#fff6e0', '#ffffff', '#ff4f6d']); } callout('ПИРОГ В ЛИЦО!', p.x, p.y - 40, 'combo'); }
     if (e.type === 'stick') { sound('pop'); callout('ЧПОК!', p.x, p.y - 40, 'pop'); }
-    if (e.type === 'strike') { sound('strike'); if (e.point) pop('strike', e.point, 1.3); callout('СТРАЙК!', innerWidth / 2, innerHeight * .35, 'combo'); if (motion()) shake = .2; }
+    if (e.type === 'strike') { sound('strike'); if (e.point) pop('strike', e.point, 1.3); const p = stageFraction(.5, .35); callout('СТРАЙК!', p.x, p.y, 'combo'); if (motion()) shake = .2; }
     if (e.type === 'seeds' && e.point) { sound('pop'); seedBurst(e.point, e.ids ?? []); }
     if (e.type === 'geyser' && e.point) { sound('geyser'); const s = toScreen(e.point); callout('ФОНТАН!', s.x, s.y - 80, 'pop'); }
     if (e.type === 'knock') { if (v) { v.flash = 1; v.knock = 1; } sound('splat'); callout('ПЛЮХ!', p.x, p.y - 30, 'pop'); }
@@ -766,7 +789,7 @@ function drainEvents(at?: { x: number; y: number }) {
     if (e.type === 'land' && e.point) { sound('thud'); if (e.prop === 'anvil' && motion()) { shake = Math.max(shake, .22); pop('cover', e.point, .9); } }
     if (e.type === 'gag') playGag(e);
     if (e.type === 'shatter' && e.point && e.prop) { shatter(e.point, PROPS[e.prop].shards ?? ['#ffffff']); pop('smash', e.point, .8); }
-    if (e.type === 'ultEnd') { sound('slide'); callout(e.amount ? `НИ КАПЛИ МИМО! +${e.amount}` : 'ПРОЛИЛ… ПЛАТИ ТРИСТА', innerWidth / 2, innerHeight * .6, e.amount ? 'combo' : 'bad'); }
+    if (e.type === 'ultEnd') { sound('slide'); const p = stageFraction(.5, .6); callout(e.amount ? `НИ КАПЛИ МИМО! +${e.amount}` : 'ПРОЛИЛ… ПЛАТИ ТРИСТА', p.x, p.y, e.amount ? 'combo' : 'bad'); }
     if (e.type === 'advance') { sound('whoosh'); callout('БЛИЖЕ!', p.x, p.y - 30, 'bad'); }
     if (e.type === 'taunt') { sound('pop'); callout(['ЭЙ ТЫ!', 'НЕ ДОСТАНЕШЬ!', 'ХА-ХА!'][e.id % 3], p.x, p.y - 30, 'bad'); }
   }
@@ -783,9 +806,8 @@ function release(s: Swing) {
   s.launched = true; s.resolved = true;
   const g = whipSpot(s);
   const rect = canvas.getBoundingClientRect();
-  const ndcX = ((g.x - rect.left) / (rect.width || 1)) * 2 - 1;
-  const ndcY = -(((g.y - rect.top) / (rect.height || 1)) * 2 - 1);
-  raycaster.setFromCamera(new THREE.Vector2(ndcX, ndcY), camera);
+  const ndc = screenAim(g.x, g.y); if (!ndc) return;
+  raycaster.setFromCamera(ndc, camera);
   const from = raycaster.ray.at(1.7, new THREE.Vector3());
   const f = game.launch({ x: from.x, y: from.y, z: from.z }, s.shot.point);
   s.outcome = 'throw'; strikes.push({ action: 'grab', outcome: 'throw', kind: 'flight', id: f?.id ?? null, staminaBefore: s.staminaBefore, staminaAfter: s.staminaAfter }); if (strikes.length > 20) strikes.shift();
@@ -859,7 +881,7 @@ let insult = 0, flicker = 0;
 /** Washing falling from the line onto a bully's head (screen-space, follows the victim). */
 const drops2: { from: Vec3; id: number; color: string; age: number }[] = [];
 function playGag(e: GameEvent) {
-  const part = e.gagId ? gagParts.get(e.gagId) : undefined, at = e.point ?? (part ? part.getWorldPosition(new THREE.Vector3()) : null), p = at ? toScreen(at) : { x: innerWidth / 2, y: innerHeight / 3 };
+  const part = e.gagId ? gagParts.get(e.gagId) : undefined, at = e.point ?? (part ? part.getWorldPosition(new THREE.Vector3()) : null), p = at ? toScreen(at) : stageFraction(.5, 1 / 3);
   canvas.dataset.gag = `${e.gag}:${game.riffs}`;
   if (e.gag === 'piano') {
     ragtime(ragtimeScore(e.amount ?? 0)); callout('♪ ТРЫНЬ-ТЫН-ТЫН ♪', p.x, p.y - 40, 'combo');
@@ -925,8 +947,8 @@ const constellations: { x: number; pts: { x: number; y: number }[]; age: number 
 const FIGURE = [[0, -1.2], [-.5, -.4], [.5, -.4], [0, 0], [-.6, 1], [.6, 1], [-1, -.9], [1, -.9]] as const;
 const LINKS = [[0, 1], [0, 2], [1, 3], [2, 3], [3, 4], [3, 5], [1, 6], [2, 7]] as const;
 function constellation(x: number) {
-  const W = innerWidth, H = innerHeight, cx = THREE.MathUtils.clamp(x, W * .15, W * .85), s = Math.min(W, H) * .07;
-  constellations.push({ x: cx, pts: FIGURE.map(([a, b]) => ({ x: cx + a * s + (Math.random() - .5) * s * .2, y: H * .26 + b * s })), age: 0 });
+  const rect = canvas.getBoundingClientRect(), W = rect.width, H = rect.height, cx = THREE.MathUtils.clamp(x, rect.left + W * .15, rect.left + W * .85), s = Math.min(W, H) * .07;
+  constellations.push({ x: cx, pts: FIGURE.map(([a, b]) => ({ x: cx + a * s + (Math.random() - .5) * s * .2, y: rect.top + H * .26 + b * s })), age: 0 });
   if (constellations.length > 3) constellations.shift(); sound('harp');
 }
 /** …or turns into a little flock of birds that flap off. */
@@ -1053,7 +1075,7 @@ function milestone(text: string) {
 function land(s: Swing) {
   s.resolved = true;
   if (s.brief) {
-    const at = { x: s.spot.x * innerWidth, y: s.spot.y * innerHeight }, res = game.briefPunch(herald.hit(at.x, at.y));
+    const rect = canvas.getBoundingClientRect(), at = stageToScreen(rect, { x: s.spot.x * rect.width, y: s.spot.y * rect.height }), res = game.briefPunch(herald.hit(at.x, at.y));
     if (res === 'tear') { sound('flop'); if (motion()) { shake = .06; hitstop = .04; } }
     else if (res !== 'protected') sound('miss');
     s.outcome = res === 'tear' ? 'hit' : res === 'protected' ? 'protected' : 'miss'; // the comic burst behind the glove
@@ -1114,9 +1136,8 @@ function executeTouchThrow(at: { readonly x: number; readonly y: number }) {
     const p = pose(game.level, targetEnemy, motion());
     targetPoint = { x: p.x, y: p.y, z: p.z };
   } else {
-    const ndcX = ((at.x - rect.left) / (rect.width || 1)) * 2 - 1;
-    const ndcY = -(((at.y - rect.top) / (rect.height || 1)) * 2 - 1);
-    raycaster.setFromCamera(new THREE.Vector2(ndcX, ndcY), camera);
+    const ndc = screenAim(at.x, at.y); if (!ndc) return;
+    raycaster.setFromCamera(ndc, camera);
     const p = raycaster.ray.at(10, new THREE.Vector3());
     targetPoint = { x: p.x, y: p.y, z: p.z };
   }
@@ -1154,6 +1175,7 @@ function sweepTouchSegment(x0: number, y0: number, x1: number, y1: number) {
   const rect = canvas.getBoundingClientRect();
   const pts = sweepSegment({ x: x0, y: y0 }, { x: x1, y: y1 }, 16);
   for (const pt of pts) {
+    const ndc = screenAim(pt.x, pt.y); if (!ndc) continue;
     if (game.briefing) {
       const hitRes = herald.hit(pt.x, pt.y);
       if (hitRes === 'flyer') {
@@ -1171,9 +1193,6 @@ function sweepTouchSegment(x0: number, y0: number, x1: number, y1: number) {
       }
       continue;
     }
-    const ndcX = ((pt.x - rect.left) / (rect.width || 1)) * 2 - 1;
-    const ndcY = -(((pt.y - rect.top) / (rect.height || 1)) * 2 - 1);
-    const ndc = new THREE.Vector2(THREE.MathUtils.clamp(ndcX, -1, 1), THREE.MathUtils.clamp(ndcY, -1, 1));
     const shot = shotAt(ndc);
     const id = typeof shot.id === 'number' ? shot.id : undefined;
 
@@ -1258,13 +1277,12 @@ function updatePan(dt: number) {
   if (Math.abs(panVel) > .01) pan = clampPan(game.level, pan + panVel * dt);
 }
 function setPointer(e: PointerEvent) {
-  const rect = canvas.getBoundingClientRect();
-  const ndcX = ((e.clientX - rect.left) / (rect.width || 1)) * 2 - 1;
-  const ndcY = -(((e.clientY - rect.top) / (rect.height || 1)) * 2 - 1);
-  pointer.set(THREE.MathUtils.clamp(ndcX, -1, 1), THREE.MathUtils.clamp(ndcY, -1, 1));
+  const ndc = screenAim(e.clientX, e.clientY); if (!ndc) return;
+  pointer.copy(ndc);
   updateCrosshair();
 }
 canvas.addEventListener('pointermove', e => {
+  if (!screenAim(e.clientX, e.clientY)) { cancelContact(); return; }
   if (e.pointerType === 'mouse') mouseX = e.clientX;
   if (touchDrag && e.pointerId === touchDrag.id) {
     touchDrag.prevX = touchDrag.currentX;
@@ -1290,9 +1308,14 @@ canvas.addEventListener('pointermove', e => {
   }
   if (e.pointerType !== 'touch' || game.ultActive) setPointer(e);
 });
-canvas.addEventListener('pointerleave', () => { mouseX = -1; });
+function cancelContact() {
+  mouseX = -1; touchDrag = null; drag = null; doubleTap.reset();
+  canvas.dataset.touching = 'false';
+}
+canvas.addEventListener('pointerleave', cancelContact);
 canvas.addEventListener('pointerdown', e => {
   if (game.mode !== 'play') return;
+  if (!screenAim(e.clientX, e.clientY)) { cancelContact(); return; }
   if (e.pointerType === 'touch') {
     e.preventDefault();
     if (touchDrag) { doubleTap.reset(); return; }
@@ -1312,6 +1335,7 @@ canvas.addEventListener('pointerdown', e => {
   perform(e.button === 2 ? 'grab' : 'punch');
 });
 const endDrag = (e: PointerEvent) => {
+  if (!screenAim(e.clientX, e.clientY)) { cancelContact(); return; }
   if (touchDrag && e.pointerId === touchDrag.id) {
     e.preventDefault();
     if (doubleTap.end(touchPoint(e), game.mode === 'play' && game.held !== null && !game.ultActive && !game.briefing)) executeTouchThrow(touchPoint(e));
@@ -1397,14 +1421,25 @@ function renderUi() {
   }
   syncActors(runtime);
   if (mode !== 'play') { ui.insertAdjacentHTML('beforeend', settingsUi()); bindSettings(renderUi); }
+  const hud = ui.querySelector('.hud');
+  if (hud) {
+    const left = document.createElement('aside'), right = document.createElement('aside');
+    left.className = 'game-rail rail-left'; right.className = 'game-rail rail-right';
+    const boxes = hud.querySelectorAll('.hudbox');
+    if (boxes[0]) left.append(boxes[0]);
+    if (boxes[1]) right.append(boxes[1]);
+    for (const id of ['progress', 'ultmeter', 'panL']) { const el = document.getElementById(id); if (el) left.append(el); }
+    for (const selector of ['#pause', '#message', '#panR', '.controls']) { const el = ui.querySelector(selector); if (el) right.append(el); }
+    hud.remove(); ui.prepend(left, right);
+  }
+  updateCrosshair();
   measureControls();
   checkOrientation();
 }
 
 function toScreen(p: Vec3) {
   const v = new THREE.Vector3(p.x, p.y, p.z).project(camera);
-  const rect = canvas.getBoundingClientRect();
-  return { x: rect.left + (v.x + 1) * 0.5 * rect.width, y: rect.top + (1 - v.y) * 0.5 * rect.height };
+  return ndcToScreen(canvas.getBoundingClientRect(), v);
 }
 /**
  * A screen point that free-aim would actually resolve to this actor right now (hitbox sampled top-down,
@@ -1416,10 +1451,8 @@ function clickablePoint(t: Actor) {
   for (const fy of [.8, .65, .9, .5, .35]) for (const fx of [.5, .38, .62]) {
     const world = { x: p.x - c.w / 2 + c.w * (l + (r - l) * fx), y: p.y + c.h * (b + (tp - b) * fy), z: p.z };
     const s = toScreen(world);
-    const ndcX = ((s.x - rect.left) / (rect.width || 1)) * 2 - 1;
-    const ndcY = -(((s.y - rect.top) / (rect.height || 1)) * 2 - 1);
-    const shot = shotAt(new THREE.Vector2(ndcX, ndcY));
-    if (shot.id === t.id) return { x: Math.round(s.x), y: Math.round(s.y) };
+    const shot = screenShot(s.x, s.y);
+    if (shot?.id === t.id) return { x: Math.round(s.x), y: Math.round(s.y) };
   }
   return null;
 }
@@ -1442,7 +1475,7 @@ function updateHud() {
   // Published for players' assistive tools and the production check: where a thrown hat would land on the counter.
   const zone = game.mode === 'play' && game.held === 'hat' ? JSON.stringify(landingPoint()) : '';
   if (canvas.dataset.zone !== zone) canvas.dataset.zone = zone;
-  const ult = JSON.stringify({ phase: game.ult.phase, meter: +game.ult.meter.toFixed(2), tip: stream && game.ult.phase === 'pour' ? { x: Math.round(stream.tip.x * innerWidth), y: Math.round(stream.tip.y * innerHeight) } : null });
+  const ult = JSON.stringify({ phase: game.ult.phase, meter: +game.ult.meter.toFixed(2), tip: stream && game.ult.phase === 'pour' ? stageFraction(stream.tip.x, stream.tip.y) : null });
   if (canvas.dataset.ult !== ult) canvas.dataset.ult = ult;
   const held = game.held ?? '';
   if (canvas.dataset.held !== held) canvas.dataset.held = held;
@@ -1469,7 +1502,7 @@ function updatePanHints() {
   const side = { L: { n: 0, hot: false }, R: { n: 0, hot: false } };
   for (const t of game.actors) {
     if (t.kind !== 'enemy') continue;
-    const sx = toScreen(pose(game.level, t, motion())).x, k = sx < 0 ? side.L : sx > innerWidth ? side.R : null;
+    const rect = canvas.getBoundingClientRect(), sx = toScreen(pose(game.level, t, motion())).x, k = sx < rect.left ? side.L : sx > rect.right ? side.R : null;
     if (k) { k.n++; if (t.deadline - t.age < WINDUP * 1.6) k.hot = true; }
   }
   for (const [id, more, s] of [['panL', pan > -range + .05, side.L], ['panR', pan < range - .05, side.R]] as const) {
@@ -1484,7 +1517,8 @@ function updatePanHints() {
 let avoidRect: Avoid | null = null, measureTick = 0;
 function measureControls() {
   const c = document.querySelector('.controls button') ? document.querySelector('.controls')?.getBoundingClientRect() : null;
-  avoidRect = c && c.width ? { left: c.left, right: c.right, top: c.top } : null;
+  const stage = canvas.getBoundingClientRect();
+  avoidRect = c && c.width && c.right > stage.left && c.left < stage.right && c.bottom > stage.top && c.top < stage.bottom ? { left: c.left - stage.left, right: c.right - stage.left, top: c.top - stage.top } : null;
   // The status pill is centred text in a wide box: measure the visible text, not the box.
   const msg = document.getElementById('message');
   if (avoidRect && msg?.textContent) {
@@ -1512,14 +1546,13 @@ function landingPoint() {
   const rect = canvas.getBoundingClientRect();
   for (const fx of [.55, .42, .68, .3, .8]) for (const fz of [.5, .3, .7]) {
     const sp = toScreen({ x: c.min.x + (c.max.x - c.min.x) * fx, y: c.max.y, z: c.min.z + (c.max.z - c.min.z) * fz });
-    const ndcX = ((sp.x - rect.left) / (rect.width || 1)) * 2 - 1;
-    const ndcY = -(((sp.y - rect.top) / (rect.height || 1)) * 2 - 1);
-    const shot = shotAt(new THREE.Vector2(ndcX, ndcY));
-    if (shot.kind === 'cover' && shot.point.y >= c.max.y - 1e-3 && onLanding(game.level, shot.id, shot.point)) return { x: Math.round(sp.x), y: Math.round(sp.y) };
+    const shot = screenShot(sp.x, sp.y);
+    if (shot?.kind === 'cover' && shot.point.y >= c.max.y - 1e-3 && onLanding(game.level, shot.id, shot.point)) return { x: Math.round(sp.x), y: Math.round(sp.y) };
   }
   return null;
 }
 function updateUlt(dt: number) {
+  const rect = canvas.getBoundingClientRect();
   trickle(game.pouring && game.mode === 'play');
   if (game.ult.phase === 'none' && (puddles.length || hatTrophy.visible)) { puddles.length = 0; drops.length = 0; hatTrophy.visible = false; stream = null; hatFill = 0; }
   // Dialogue intertitles (the bet), one card at a time after the frozen beat. Driven by game time (pause-safe).
@@ -1528,7 +1561,7 @@ function updateUlt(dt: number) {
   if (now && !document.getElementById('ulttitle')) ui.insertAdjacentHTML('beforeend', `<div id="ulttitle" class="intertitle dialog" role="status" data-who="${now.who}"><div><small>❦ ${now.who} ❦</small><b>${now.text}</b></div></div>`);
   // The pour starts right where the bet is: the jet (and the aim) begin in the hat.
   if (game.ult.phase === 'pour' && !stream) {
-    const m = hatMouth(), at = m ? { x: m.x / innerWidth, y: m.y / innerHeight } : { x: .5, y: .6 };
+    const m = hatMouth(), at = m ? { x: (m.x - rect.left) / rect.width, y: (m.y - rect.top) / rect.height } : { x: .5, y: .6 };
     stream = new Stream(at); pointer.set(at.x * 2 - 1, 1 - at.y * 2); updateCrosshair();
   }
   for (let i = drops.length - 1; i >= 0; i--) { const d = drops[i]; d.life -= dt; d.vy += 2.4 * dt; d.x += d.vx * dt; d.y += d.vy * dt; if (d.life <= 0) drops.splice(i, 1); }
@@ -1542,14 +1575,14 @@ function updateUlt(dt: number) {
     if (ox === 0 && (shot.kind === 'whiff' || shot.point.y < .2)) floor = shot.point;
   }
   for (const [id, kind] of ids) if (kind === 'enemy' || kind === 'dog') game.soak({ kind: kind as 'enemy' | 'dog', id }, dt);
-  const mouth = hatMouth(), inHat = !!mouth && Math.hypot(tip.x * innerWidth - mouth.x, (tip.y * innerHeight - mouth.y) * 1.6) < mouth.r;
+  const mouth = hatMouth(), tipScreen = stageToScreen(rect, { x: tip.x * rect.width, y: tip.y * rect.height }), inHat = !!mouth && Math.hypot(tipScreen.x - mouth.x, (tipScreen.y - mouth.y) * 1.6) < mouth.r;
   if (inHat) { game.pourInHat(dt); hatFill = Math.min(1, hatFill + dt / (ULT.length * .8)); }
   canvas.dataset.inhat = String(inHat);
   if (motion() && Math.random() < .7) drops.push({ x: tip.x + (Math.random() - .5) * .02, y: tip.y, vx: (Math.random() - .5) * .22, vy: -.18 - Math.random() * .22, life: .22 + Math.random() * .2 });
   if (drops.length > 40) drops.splice(0, drops.length - 40);
   if (floor && floor.y < .2) {
-    const sp = toScreen(floor), fx = sp.x / innerWidth, fy = sp.y / innerHeight, m = Math.min(innerWidth, innerHeight);
-    const near = puddles.find(p => Math.hypot((p.x - fx) * innerWidth, (p.y - fy) * innerHeight) < m * .06);
+    const sp = toScreen(floor), fx = (sp.x - rect.left) / rect.width, fy = (sp.y - rect.top) / rect.height, m = Math.min(rect.width, rect.height);
+    const near = puddles.find(p => Math.hypot((p.x - fx) * rect.width, (p.y - fy) * rect.height) < m * .06);
     if (near) near.r = Math.min(near.max, near.r + dt * m * .08); else { puddles.push({ x: fx, y: fy, r: m * .015, max: m * (.07 + Math.random() * .04) }); if (puddles.length > 14) puddles.shift(); }
   }
 }
@@ -1595,7 +1628,7 @@ function drawHealthBars(g: CanvasRenderingContext2D, dt: number, ink: number) {
 const YELLOW = '#ffd400', GLOSS = '#fff6b8';
 function drawStream(g: CanvasRenderingContext2D, W: number, H: number, time: number, ink: number) {
   const m = Math.min(W, H);
-  const mouth = hatMouth();
+  const rect = canvas.getBoundingClientRect(), source = hatMouth(), mouth = source ? { ...source, x: source.x - rect.left, y: source.y - rect.top } : null;
   if (mouth && hatFill > 0) { g.beginPath(); g.ellipse(mouth.x, mouth.y + mouth.r * .05, mouth.r * (.55 + .4 * hatFill), mouth.r * .22, 0, 0, Math.PI * 2); g.fillStyle = YELLOW; g.fill(); g.lineWidth = Math.max(1.5, ink * .35); g.strokeStyle = '#151715'; g.stroke(); }
   for (const p of puddles) { g.beginPath(); g.ellipse(p.x * W, p.y * H, p.r, p.r * .3, 0, 0, Math.PI * 2); g.fillStyle = YELLOW; g.globalAlpha = .9; g.fill(); g.globalAlpha = 1; g.lineWidth = Math.max(2, ink * .45); g.strokeStyle = '#151715'; g.stroke(); g.beginPath(); g.ellipse(p.x * W - p.r * .25, p.y * H - p.r * .08, p.r * .35, p.r * .07, 0, 0, Math.PI * 2); g.fillStyle = GLOSS; g.fill(); }
   if (stream && game.ult.phase === 'pour') {
@@ -1631,19 +1664,21 @@ function drawArm(time: number) {
   g.setTransform(dpr, 0, 0, dpr, 0, 0);
   if (isBar()) drawStream(g, W, H, time, armMetrics(W, H).ink);
   const { ink, rim } = armMetrics(W, H), avoid = game.briefing ? null : avoidRect, s = swing, k = s ? s.phase : 1;
+  g.save(); g.translate(-rect.left, -rect.top);
   drawGeysers(g, time, ink); drawActorFx(g, time, ink); drawHealthBars(g, dt, ink); drawLaundryDrops(g, dt, ink); drawBits(g, dt, ink, time);
+  g.restore();
   const spot = s ? { x: s.spot.x * W, y: s.spot.y * H } : { x: 0, y: 0 };
   const active = s && k < 1 ? (s.throwing ? 1 : sideFor(spot, W)) : 0;
   // Impact burst sits behind the glove so the fist stays readable on contact.
   for (let i = pops.length - 1; i >= 0; i--) {
     const p = pops[i]; p.age += dt; if (p.age > .5) { pops.splice(i, 1); continue; }
     const a = p.age / .5, size = p.size * (a < .15 ? .6 + a * 4 : 1.2 - a * .2);
-    g.save(); g.globalAlpha = Math.max(0, 1 - Math.max(0, a - .5) * 2); g.translate(p.x, p.y); g.drawImage(bursts[p.key] ?? bursts.miss, -size / 2, -size / 2, size, size); g.restore();
+    g.save(); g.globalAlpha = Math.max(0, 1 - Math.max(0, a - .5) * 2); g.translate(p.x - rect.left, p.y - rect.top); g.drawImage(bursts[p.key] ?? bursts.miss, -size / 2, -size / 2, size, size); g.restore();
   }
   for (let i = shards.live.length - 1; i >= 0; i--) {
     const d = shards.live[i]; d.life -= dt; if (d.life <= 0) { shards.release(i); continue; }
     d.vy += H * 2.2 * dt; d.x += d.vx * dt; d.y += d.vy * dt; d.rot += d.vr * dt;
-    g.save(); g.translate(d.x, d.y); g.rotate(d.rot); g.globalAlpha = Math.min(1, d.life * 3);
+    g.save(); g.translate(d.x - rect.left, d.y - rect.top); g.rotate(d.rot); g.globalAlpha = Math.min(1, d.life * 3);
     g.beginPath(); g.moveTo(-d.size, d.size * .6); g.lineTo(0, -d.size); g.lineTo(d.size * .8, d.size * .4); g.closePath();
     g.fillStyle = d.color; g.fill(); g.lineWidth = Math.max(1.5, ink * .3); g.strokeStyle = '#151715'; g.stroke(); g.restore();
   }
@@ -1659,7 +1694,8 @@ function drawArm(time: number) {
     let arm = restPose(side, W, H, avoid, bob);
     let armMode = 'rest';
     if (s && side === active) {
-      arm = s.throwing ? punchPose(side, W, H, whipSpot(s), k, WHIP, { throwing: true, avoid }) : punchPose(side, W, H, spot, k, { arrive: ARRIVE, release: RELEASE }, { depth: 6.5 / Math.max(3, s.shot.distance), grab: s.action === 'grab', avoid });
+      const whip = whipSpot(s);
+      arm = s.throwing ? punchPose(side, W, H, { x: whip.x - rect.left, y: whip.y - rect.top }, k, WHIP, { throwing: true, avoid }) : punchPose(side, W, H, spot, k, { arrive: ARRIVE, release: RELEASE }, { depth: 6.5 / Math.max(3, s.shot.distance), grab: s.action === 'grab', avoid });
       armMode = s.throwing ? 'throw' : 'swing';
     } else if (touchDrag && !s) {
       const strikeSide = game.held ? -1 : sideFor({ x: touchDrag.currentX - rect.left, y: touchDrag.currentY - rect.top }, W);
@@ -1750,11 +1786,19 @@ resize(); checkOrientation(); renderUi(); frame();
 
 Object.assign(window, {
   __interaction: {
-    actors: () => game.actors.map(t => ({ id: t.id, kind: t.kind, at: clickablePoint(t), center: toScreen(pose(game.level, t, motion())), world: pose(game.level, t, motion()) })),
+    actors: () => {
+      const hits = currentHittables();
+      return game.actors.map(t => {
+        const h = hits.find(h => h.id === t.id);
+        const targetCenter = h ? toScreen({ x: (h.min.x + h.max.x) / 2, y: (h.min.y + h.max.y) / 2, z: (h.min.z + h.max.z) / 2 }) : null;
+        const corners = h ? [h.min.x, h.max.x].flatMap(x => [h.min.y, h.max.y].flatMap(y => [h.min.z, h.max.z].map(z => toScreen({ x, y, z })))) : [];
+        const bounds = h ? { x: Math.min(...corners.map(p => p.x)), y: Math.min(...corners.map(p => p.y)), width: Math.max(...corners.map(p => p.x)) - Math.min(...corners.map(p => p.x)), height: Math.max(...corners.map(p => p.y)) - Math.min(...corners.map(p => p.y)) } : null;
+        return { id: t.id, kind: t.kind, at: clickablePoint(t), center: toScreen(pose(game.level, t, motion())), targetCenter, bounds, world: pose(game.level, t, motion()) };
+      });
+    },
     shot(x: number, y: number) {
-      const rect = canvas.getBoundingClientRect();
-      const s = shotAt(new THREE.Vector2((x - rect.left) / rect.width * 2 - 1, 1 - (y - rect.top) / rect.height * 2));
-      return { kind: s.kind, id: s.id ?? null };
+      const s = screenShot(x, y);
+      return { kind: s?.kind ?? 'outside', id: s?.id ?? null };
     },
     arms: () => drawnArms,
     flights: () => game.flights.map(f => ({ id: f.id, kind: f.kind, pos: { ...f.pos }, vel: { ...f.vel }, age: f.age, struck: f.struck })),
@@ -1769,11 +1813,8 @@ if (import.meta.env.DEV) {
       project(id: number) { const t = game.actors.find(v => v.id === id); return t ? clickablePoint(t) : null; },
       /** Predict what a click at (x,y) would strike, using the same resolver the game uses. */
       shotAt(x: number, y: number) {
-        const rect = canvas.getBoundingClientRect();
-        const ndcX = ((x - rect.left) / (rect.width || 1)) * 2 - 1;
-        const ndcY = -(((y - rect.top) / (rect.height || 1)) * 2 - 1);
-        const s = shotAt(new THREE.Vector2(ndcX, ndcY));
-        return { kind: s.kind, id: s.id ?? null, distance: s.distance };
+        const s = screenShot(x, y);
+        return { kind: s?.kind ?? 'outside', id: s?.id ?? null, distance: s?.distance ?? null };
       },
       /** Sample the full sprite hitbox of an actor and report what each screen point would actually hit. */
       samples(id: number) {
@@ -1782,10 +1823,8 @@ if (import.meta.env.DEV) {
         const rect = canvas.getBoundingClientRect();
         for (let fy = .05; fy < 1; fy += .1) for (let fx = .1; fx < 1; fx += .2) {
           const s = toScreen({ x: p.x - c.w / 2 + c.w * (l + (r - l) * fx), y: p.y + c.h * (b + (tp - b) * fy), z: p.z });
-          const ndcX = ((s.x - rect.left) / (rect.width || 1)) * 2 - 1;
-          const ndcY = -(((s.y - rect.top) / (rect.height || 1)) * 2 - 1);
-          const shot = shotAt(new THREE.Vector2(ndcX, ndcY));
-          out.push({ x: Math.round(s.x), y: Math.round(s.y), kind: shot.kind, id: shot.id ?? null });
+          const shot = screenShot(s.x, s.y);
+          out.push({ x: Math.round(s.x), y: Math.round(s.y), kind: shot?.kind ?? 'outside', id: shot?.id ?? null });
         }
         return out;
       },
