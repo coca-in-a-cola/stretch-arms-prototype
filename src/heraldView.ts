@@ -72,17 +72,25 @@ export function heraldView(layer: HTMLElement, onSkip: () => void) {
     const bw = Math.round(w * dpr), bh = Math.round(h * dpr);
     if (canvas.width !== bw || canvas.height !== bh) { canvas.width = bw; canvas.height = bh; }
     g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, w, h);
-    pose = b.phase === 'mad' ? 'mad' : b.index % 2 ? 'point' : 'lean';
+    // SA-028f supplied-pixel review: point has three arms, one detached. Quarantine
+    // that replacement rather than presenting its existence as visual approval.
+    pose = b.phase === 'mad' ? 'mad' : 'lean';
     // One shared composition transform: the paper's grip is pose-relative, never viewport-fixed.
     const enter = !b.reduced && b.phase === 'enter' ? (1 - Math.min(1, b.t / .7)) * h : 0;
     const leave = !b.reduced && b.phase === 'leave' ? Math.min(1, b.t / 1.1) * h : 0;
     const bob = !b.reduced && b.phase === 'show' ? Math.sin(b.t * 2) * h * .006 : 0;
-    guy = { x: -w * .08, y: h * .03 + enter + leave + bob, w: w * .7, h: w * .7 * .9 };
+    // New sources are square, not the old 800x720. Fit the complete figure in
+    // the stage, preserving its aspect ratio rather than clipping its lower hand.
+    const side = h * .96;
+    guy = { x: w * .012, y: h * .02 + enter + leave + bob, w: side, h: side };
     const img = images.get(pose)!;
-    layer.dataset.artGate = img.src.includes('nopaper') ? 'replacement-unreviewed' : 'OPEN-baked-sheet-fallback';
+    layer.dataset.artGate = img.src.includes('nopaper') ? 'source-reviewed-runtime-pending-point-rejected' : 'OPEN-baked-sheet-fallback';
     if (img.complete && img.naturalWidth) g.drawImage(img, guy.x, guy.y, guy.w, guy.h);
-    const gripX = guy.x + guy.w * (pose === 'point' ? .62 : .60);
-    paper = b.flyer && ['show', 'mad', 'enter'].includes(b.phase) ? { x: gripX, y: guy.y + h * .025, w: w - gripX - w * .025, h: h * .89 } : null;
+    // Lean's lower open palm is visibly at x=.74, y=.81 in the supplied
+    // 1024px source (manual pixel review, not cream-colour centroid inference).
+    // Seat the lower-left paper edge on that palm; keep the sheet canvas-only.
+    const gripX = guy.x + guy.w * .74;
+    paper = b.flyer && ['show', 'mad', 'enter'].includes(b.phase) ? { x: gripX, y: guy.y + guy.h * .04, w: w - gripX - w * .025, h: guy.h * .77 } : null;
     const k = `${b.index}|${b.phase}|${w}|${h}`;
     const talk = b.phase === 'mad' ? b.line : b.phase === 'leave' ? HERALD_BYE : '';
     if (k !== key) {
