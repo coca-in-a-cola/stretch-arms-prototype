@@ -14,7 +14,7 @@ import { PROPS, PROP_KINDS, REACH_COST } from './props';
 import { ragtimeScore } from './ragtime';
 import { LOOKS, greyscaleWorld, greyCanvas, greyColor } from './palette';
 import { armMetrics, restPose, punchPose, sideFor, drawArm as inkArm, type Avoid, type Pt } from './arm';
-import { sweepSegment, HitCooldownTracker, ContactHandTracker, selectLocalAimEnemy, type AimCandidate } from './gestures';
+import { sweepSegment, HitCooldownTracker, ContactHandTracker } from './gestures';
 import { reducedMotion, unlockAudio, sound, trickle, ragtime, settingsUi, bindSettings } from './preferences';
 import './stage.css';
 
@@ -1114,51 +1114,17 @@ const contactTracker = new ContactHandTracker(0.35);
 const hitCooldowns = contactTracker.cooldowns;
 let touchDrag: { id: number; currentX: number; currentY: number; prevX: number; prevY: number; moved: boolean } | null = null;
 
-function findHoveredEnemy(x: number, y: number): Actor | null {
-  const ndc = screenAim(x, y);
-  if (ndc) {
-    const shot = shotAt(ndc);
-    if (shot.kind === 'enemy' || shot.kind === 'thug') {
-      const a = game.actors.find(t => t.id === shot.id);
-      if (a) return a;
-    }
-  }
-  const hits = currentHittables();
-  for (const t of game.actors) {
-    if (t.kind !== 'enemy' && t.kind !== 'thug') continue;
-    if (clickablePoint(t) === null) continue;
-    const h = hits.find(hit => hit.id === t.id);
-    if (h) {
-      const corners = [h.min.x, h.max.x].flatMap(cx => [h.min.y, h.max.y].flatMap(cy => [h.min.z, h.max.z].map(cz => toScreen({ x: cx, y: cy, z: cz }))));
-      const minX = Math.min(...corners.map(p => p.x)) - 8;
-      const maxX = Math.max(...corners.map(p => p.x)) + 8;
-      const minY = Math.min(...corners.map(p => p.y)) - 8;
-      const maxY = Math.max(...corners.map(p => p.y)) + 8;
-      if (x >= minX && x <= maxX && y >= minY && y <= maxY) return t;
-    }
-    const center = toScreen(pose(game.level, t, motion()));
-    if (Math.hypot(x - center.x, y - center.y) <= 42) return t;
-  }
-  return null;
-}
-
-function executeTouchThrow(at: { readonly x: number; readonly y: number }, preferredEnemy?: Actor, forceForward = false) {
+function executeTouchThrow(at: { readonly x: number; readonly y: number }, swapping = false) {
   if (game.mode !== 'play' || !game.held) return;
   const heldItem = game.held;
 
-  const enemyToHit: Actor | null = preferredEnemy ?? (forceForward ? null : findHoveredEnemy(at.x, at.y));
-  if (!enemyToHit && !forceForward) return;
-
-  let aimPoint: Vec3;
-  if (enemyToHit) {
-    const p = pose(game.level, enemyToHit, motion());
-    aimPoint = { x: p.x, y: p.y, z: p.z };
-  } else {
-    const ndc = screenAim(at.x, at.y); if (!ndc) return;
-    raycaster.setFromCamera(ndc, camera);
-    const p = raycaster.ray.at(10, new THREE.Vector3());
-    aimPoint = { x: p.x, y: p.y, z: p.z };
-  }
+  const ndc = screenAim(at.x, at.y); if (!ndc) return;
+  const shot = shotAt(ndc);
+  const hatCounter = heldItem === 'hat' && shot.kind === 'cover'
+    && onLanding(game.level, shot.id, shot.point) && shot.point.y >= landingCover.max.y - 1e-3;
+  if (!swapping && shot.kind !== 'enemy' && shot.kind !== 'thug' && !hatCounter) return;
+  // Use the actual first ray intersection, never an actor centre or nearby candidate.
+  const aimPoint = shot.point;
 
   const staminaBefore = game.stamina;
   if (!game.spend('grab')) { updateHud(); sound('ui'); return; }
@@ -1223,8 +1189,7 @@ function sweepTouchSegment(x0: number, y0: number, x1: number, y1: number) {
       if (game.held !== null) {
         if (id !== undefined && hitCooldowns.canHit(id, game.elapsed)) {
           hitCooldowns.recordHit(id, game.elapsed);
-          const enemyActor = game.actors.find(a => a.id === shot.id);
-          executeTouchThrow(pt, enemyActor);
+          executeTouchThrow(pt);
         }
       } else if (id !== undefined && hitCooldowns.canHit(id, game.elapsed)) {
         if (game.spend('punch')) {
@@ -1259,7 +1224,7 @@ function sweepTouchSegment(x0: number, y0: number, x1: number, y1: number) {
           }
         }
       } else if (id !== undefined && hitCooldowns.canHit(id, game.elapsed)) {
-        executeTouchThrow(pt, undefined, true);
+        executeTouchThrow(pt, true);
         hitCooldowns.recordHit(id, game.elapsed);
         if (game.spend('grab')) {
           const outcome = game.resolve('grab', { kind: shot.kind, id: shot.id, point: shot.point });
@@ -1383,10 +1348,7 @@ const endDrag = (e: PointerEvent) => {
   if (touchDrag && e.pointerId === touchDrag.id) {
     e.preventDefault();
     if (game.mode === 'play' && game.held !== null && !game.ultActive && !game.briefing) {
-      const hoveredEnemy = findHoveredEnemy(e.clientX, e.clientY);
-      if (hoveredEnemy) {
-        executeTouchThrow({ x: e.clientX, y: e.clientY }, hoveredEnemy);
-      }
+      executeTouchThrow({ x: e.clientX, y: e.clientY });
     }
     touchDrag = null;
     contactTracker.reset();
@@ -1536,7 +1498,7 @@ function updateHud() {
   const flights = String(game.flights.length);
   if (canvas.dataset.flights !== flights) canvas.dataset.flights = flights;
   if (game.touch && (!game.message || game.message.includes('Прицел стоит') || game.message.includes('Двор ждёт'))) {
-    game.message = game.held ? 'Двойной тап рядом с врагом — бросок!' : 'Веди пальцем — бей задир! Через предмет — захват.';
+    game.message = game.held === 'hat' ? 'Отпусти шляпу над столешницей стойки — секрет!' : game.held ? 'Проведи по врагу или отпусти над ним — бросок. Мимо — держи.' : 'Веди пальцем — бей задир! Через предмет — захват.';
   }
   set('message', game.message);
   const energy = document.getElementById('energy'); if (energy) energy.style.width = game.stamina + '%';
@@ -1848,8 +1810,9 @@ Object.assign(window, {
     },
     shot(x: number, y: number) {
       const s = screenShot(x, y);
-      return { kind: s?.kind ?? 'outside', id: s?.id ?? null };
+      return { kind: s?.kind ?? 'outside', id: s?.id ?? null, point: s ? { ...s.point } : null };
     },
+    hat: () => ({ rest: game.hatRest ? { ...game.hatRest } : null, trophyVisible: hatTrophy.visible, scaleY: hatTrophy.scale.y, phase: game.ult.phase }),
     arms: () => drawnArms,
     flights: () => game.flights.map(f => ({ id: f.id, kind: f.kind, pos: { ...f.pos }, vel: { ...f.vel }, age: f.age, struck: f.struck })),
   },

@@ -3,10 +3,8 @@ import {
   sweepSegment,
   HitCooldownTracker,
   ContactHandTracker,
-  selectLocalAimEnemy,
   type ContactEntity,
   type TouchPoint,
-  type AimCandidate,
 } from '../src/gestures';
 
 describe('gestures: sweepSegment', () => {
@@ -147,24 +145,18 @@ describe('gestures: ContactHandTracker (contact-driven mobile hands)', () => {
     expect(tracker.isTouching).toBe(false);
   });
 
-  test('carrying release throw: pointerup near an enemy triggers aim-assisted release throw', () => {
+  test('carrying release outside an enemy retains the item without acquisition', () => {
     const tracker = new ContactHandTracker(0.35);
-    const candidates = [
-      { entity: { id: 10, name: 'Bully' }, screenPos: { x: 210, y: 155 } },
-    ];
-    const release = tracker.evaluateRelease({ x: 200, y: 150 }, 'bottle', null, candidates, 160);
-    expect(release.action).toBe('release_throw');
-    expect(release.aimEnemy).toEqual({ id: 10, name: 'Bully' });
+    const release = tracker.evaluateRelease({ x: 200, y: 150 }, 'bottle', null);
+    expect(release.action).toBe('none');
+    expect(release.point).toEqual({ x: 200, y: 150 });
     expect(release.heldProp).toBe('bottle');
   });
 
   test('carrying release over empty space retains prop and does not throw', () => {
     const tracker = new ContactHandTracker(0.35);
     tracker.begin(1, { x: 50, y: 50 });
-    const candidates = [
-      { entity: { id: 10, name: 'Far Enemy' }, screenPos: { x: 600, y: 600 } },
-    ];
-    const release = tracker.evaluateRelease({ x: 50, y: 50 }, 'bottle', null, candidates, 160);
+    const release = tracker.evaluateRelease({ x: 50, y: 50 }, 'bottle', null);
     expect(release.action).toBe('none');
     expect(release.heldProp).toBe('bottle');
     expect(tracker.isTouching).toBe(false);
@@ -244,63 +236,5 @@ describe('gestures: ContactHandTracker (contact-driven mobile hands)', () => {
     );
     expect(step3.length).toBe(1);
     expect(step3[0].action).toBe('punch');
-  });
-});
-
-describe('gestures: selectLocalAimEnemy (bounded aim assist)', () => {
-  interface Enemy { id: number; name: string }
-
-  const gestureEnd = { x: 300, y: 220 };
-  const gestureDir = { x: 0, y: -1 }; // Straight upward
-
-  test('selects suitable nearby enemy aligned with aim direction', () => {
-    const candidates: AimCandidate<Enemy>[] = [
-      { entity: { id: 1, name: 'Close Ahead' }, screenPos: { x: 310, y: 140 } },
-      { entity: { id: 2, name: 'Far Away' }, screenPos: { x: 700, y: 100 } },
-    ];
-    const selected = selectLocalAimEnemy(gestureEnd, gestureDir, candidates, 160);
-    expect(selected).not.toBeNull();
-    expect(selected!.id).toBe(1);
-  });
-
-  test('returns null when no enemies are within bound (not global lock)', () => {
-    const candidates: AimCandidate<Enemy>[] = [
-      { entity: { id: 2, name: 'Far Left' }, screenPos: { x: 50, y: 100 } },
-      { entity: { id: 3, name: 'Far Right' }, screenPos: { x: 750, y: 120 } },
-    ];
-    // Distance from (300, 220) to (50, 100) is 277px > 160px
-    const selected = selectLocalAimEnemy(gestureEnd, gestureDir, candidates, 160);
-    expect(selected).toBeNull();
-  });
-
-  test('does not extend local radius along aim direction', () => {
-    expect(selectLocalAimEnemy(gestureEnd, gestureDir, [
-      { entity: { id: 9, name: 'Distant ahead' }, screenPos: { x: 300, y: -100 } },
-    ], 160)).toBeNull();
-  });
-
-  test('zero-direction tap chooses nearest enemy around intended point', () => {
-    expect(selectLocalAimEnemy(gestureEnd, { x: 0, y: 0 }, [
-      { entity: 1, screenPos: { x: 320, y: 225 } },
-      { entity: 2, screenPos: { x: 304, y: 216 } },
-    ], 160)).toBe(2);
-  });
-
-  test('ignores occluded enemies even if nearby', () => {
-    const candidates: AimCandidate<Enemy>[] = [
-      { entity: { id: 1, name: 'Behind Cover' }, screenPos: { x: 305, y: 150 }, isOccluded: true },
-    ];
-    const selected = selectLocalAimEnemy(gestureEnd, gestureDir, candidates, 160);
-    expect(selected).toBeNull();
-  });
-
-  test('picks closest of multiple nearby candidates', () => {
-    const candidates: AimCandidate<Enemy>[] = [
-      { entity: { id: 1, name: 'Closer' }, screenPos: { x: 305, y: 160 } },
-      { entity: { id: 2, name: 'Further' }, screenPos: { x: 340, y: 120 } },
-    ];
-    const selected = selectLocalAimEnemy(gestureEnd, gestureDir, candidates, 160);
-    expect(selected).not.toBeNull();
-    expect(selected!.id).toBe(1);
   });
 });

@@ -198,13 +198,11 @@ export class ContactHandTracker {
     return results;
   }
 
-  evaluateRelease<T>(
+  evaluateRelease(
     point: { x: number; y: number },
     held: string | null,
-    hoveredEntity: ContactEntity | null,
-    candidates?: readonly AimCandidate<T>[],
-    maxRadiusPx = 160
-  ): ContactDecision & { aimEnemy?: T | null } {
+    hoveredEntity: ContactEntity | null
+  ): ContactDecision {
     if (held === null) {
       this.reset();
       return { action: 'none', point };
@@ -213,14 +211,6 @@ export class ContactHandTracker {
     if (hoveredEntity && (hoveredEntity.kind === 'enemy' || hoveredEntity.kind === 'thug')) {
       this.reset();
       return { action: 'release_throw', entity: hoveredEntity, heldProp: held, point };
-    }
-
-    if (candidates && candidates.length > 0) {
-      const aimEnemy = selectLocalAimEnemy(point, { x: 0, y: 0 }, candidates, maxRadiusPx);
-      if (aimEnemy) {
-        this.reset();
-        return { action: 'release_throw', heldProp: held, point, aimEnemy };
-      }
     }
 
     this.reset();
@@ -236,46 +226,4 @@ export class ContactHandTracker {
     this.reset();
     this.cooldowns.clear();
   }
-}
-
-export interface AimCandidate<T = unknown> {
-  entity: T;
-  screenPos: { x: number; y: number };
-  isOccluded?: boolean;
-}
-
-export function selectLocalAimEnemy<T>(
-  gestureEnd: { x: number; y: number },
-  gestureDir: { x: number; y: number },
-  candidates: readonly AimCandidate<T>[],
-  maxRadiusPx = 160
-): T | null {
-  let bestEnemy: T | null = null;
-  let bestScore = maxRadiusPx;
-
-  const len = Math.hypot(gestureDir.x, gestureDir.y) || 1;
-  const udx = gestureDir.x / len;
-  const udy = gestureDir.y / len;
-
-  for (const c of candidates) {
-    if (c.isOccluded) continue;
-    const dx = c.screenPos.x - gestureEnd.x;
-    const dy = c.screenPos.y - gestureEnd.y;
-    const distToEnd = Math.hypot(dx, dy);
-    if (distToEnd > maxRadiusPx) continue;
-
-    const forward = dx * udx + dy * udy;
-    const perp = Math.abs(dx * (-udy) + dy * udx);
-
-    if (forward < -40) continue;
-
-    const effectiveDist = Math.hypot(gestureDir.x, gestureDir.y) === 0 ? distToEnd : forward >= 0 ? Math.hypot(perp, forward * 0.3) : distToEnd;
-
-    if (effectiveDist < bestScore) {
-      bestScore = effectiveDist;
-      bestEnemy = c.entity;
-    }
-  }
-
-  return bestEnemy;
 }

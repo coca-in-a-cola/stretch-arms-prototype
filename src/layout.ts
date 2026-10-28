@@ -258,9 +258,14 @@ export function bodyOf(kind: string, who?: string): Body {
   if (kind === 'thug' && who && who in THUG_BODY) return THUG_BODY[who as ThugKind];
   return BODY[kind as BodyKind] ?? BODY.enemy;
 }
+/** Hostile-only forgiveness: +20% width/height, unchanged depth and world pose. */
+export const HOSTILE_HIT_SCALE = 1.2;
 export function bodyBox(kind: BodyKind | 'friend' | 'thug', at: Vec3, skin?: Skin, who?: string): { min: Vec3; max: Vec3 } {
   const c = bodyOf(kind, who); const [l, r, b, tp] = skin ? SKIN_INSET[skin] : c.inset;
-  return { min: { x: at.x - c.w / 2 + c.w * l, y: at.y + c.h * b, z: at.z - .04 }, max: { x: at.x - c.w / 2 + c.w * r, y: at.y + c.h * tp, z: at.z + .04 } };
+  const scale = kind === 'enemy' || kind === 'thug' ? HOSTILE_HIT_SCALE : 1;
+  const cx = at.x - c.w / 2 + c.w * (l + r) / 2, cy = at.y + c.h * (b + tp) / 2;
+  const hw = c.w * (r - l) / 2 * scale, hh = c.h * (tp - b) / 2 * scale;
+  return { min: { x: cx - hw, y: cy - hh, z: at.z - .04 }, max: { x: cx + hw, y: cy + hh, z: at.z + .04 } };
 }
 
 /** Everything the fist can collide with at this moment: live actors + static covers. */
