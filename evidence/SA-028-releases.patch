@@ -1,0 +1,27 @@
+--- a/releases.html
++++ b/releases.html
+@@ -78,14 +78,21 @@
+         </div>
+         <div class="search"><label for="search">ПОИСК ПО ВЕРСИИ И МЕХАНИКАМ</label><input id="search" type="search" placeholder="Например: глашатай, бар, r7" autocomplete="off"></div>
+       </div>
+-      <p id="count" role="status" aria-live="polite" aria-atomic="true">На связи: 10 сборок</p>
++      <p id="count" role="status" aria-live="polite" aria-atomic="true">На связи: 11 сборок</p>
+       <div class="grid">
+         <article class="card latest" data-kind="latest">
+-          <div class="version"><span>latest / r12-double-tap</span><span>● актуальная сборка</span></div>
++          <div class="version"><span>latest / r13-contact-hands</span><span>● актуальная сборка</span></div>
+           <h2>Весь двор в твоих руках</h2>
+           <ul class="badges" aria-label="Особенности"><li class="badge">Бар + Улица</li><li class="badge">Ближний бой</li><li class="badge">Полоски HP</li><li class="badge">Мирные NPC</li><li class="badge">Ульта со шляпой</li><li class="badge">Демо-режим</li></ul>
+-          <p>Актуальная сборка r12-double-tap: веди пальцем для удара и захвата другой рукой. С предметом — двойной тап рядом с врагом для броска с лёгким локальным доведением. Одиночный тап, перетаскивание и свайп вверх предмет не бросают. Управление ПК и контрастные подложки сохранены.</p>
++          <p>Актуальная сборка r13-contact-hands: проводка при контакте бьёт врага или подбирает предмет. С предметом проведи по врагу и отпусти палец для броска; контакт с другим предметом меняет предмет в руке. Фиксированная сцена 16:9, HUD и кнопки в боковых полях. Глашатай и листовка рисуются на сценическом canvas; новые позы без встроенной бумаги, дефектная указующая поза отключена. Управление ПК сохранено.</p>
+           <a class="launch" href="./" aria-label="Запустить latest — актуальную сборку">[ЗАПУСТИТЬ →]<small>ТЕКУЩИЙ РАЗМАХ</small></a>
++        </article>
++        <article class="card" data-kind="archive">
++          <div class="version"><span>r13-contact-hands</span><span>13 / контактные руки</span></div>
++          <h2>Коснись, проведи, отпусти</h2>
++          <ul class="badges" aria-label="Особенности"><li class="badge">Контактная проводка</li><li class="badge">Бросок отпусканием</li><li class="badge">Смена предмета</li><li class="badge">Сцена 16:9 + боковой HUD</li><li class="badge">Глашатай на canvas</li></ul>
++          <p>Проводка через врага наносит удар, через предмет — подбирает его. С предметом проведи по врагу и отпусти палец для броска; другой предмет при контакте заменяет удерживаемый. Двойной тап больше не нужен. Фиксированная сцена 16:9 отделена от бокового HUD; глашатай и листовка на сценическом canvas, новые позы без встроенной бумаги. Дефектная указующая поза отключена; управление ПК сохранено.</p>
++          <a class="launch" href="r13-contact-hands/" aria-label="Запустить r13-contact-hands">[ЗАПУСТИТЬ →]</a>
+         </article>
+         <article class="card" data-kind="archive">
+           <div class="version"><span>r12-double-tap</span><span>12 / двойной тап</span></div>
