@@ -30,11 +30,19 @@
 | `art/gen_mole_poses.jpg` | лист крота: вылез из кучи земли / выглядывает с фонарём / обижен (SA-V4-17) | Gemini image model (сгенерировал Tyler); промпт не записан |
 | `art/gen_thugs_poses.jpg` | лист мелкой шпаны 3×3: строки — крыса-карманник, голубь из банды, мальчишка с рогаткой; столбцы — появился / атакует / нокаут (SA-V4-17) | Gemini image model (сгенерировал Tyler); промпт не записан |
 
-## SA-028d: no-paper herald regeneration — blocked
+## SA-028d: actual reference-conditioned no-paper generation — visual acceptance pending
 
-No `gen_herald_nopaper_*` replacements were generated. The delegated artist session exposes no authorized image-generation/edit tool or approved generation runner. The skill's suggested `gemini-3.1-flash-image` via Antigravity is not a verified supported route; an unauthenticated gateway model-catalogue probe returned HTTP 401. Existing media acceptance proves analysis only, not image output. No paid fallback, credential access or procedural substitute was used.
+This receipt supersedes the earlier capability blocker: three actual requests to `https://agy.mice.zone/v1/chat/completions` returned HTTP 200 and JPEG images. Requested and returned model: exactly `gemini-3.1-flash-image`. Each request included the corresponding original `public/assets/gen_herald_{lean,point,mad}.png` pixels as a white-composited PNG `image_url`, not just a character description. The supplied DevOps proof showed a human medieval herald and was rejected after native inspection of the initial attachments; it was NOT used as a reference or shipped.
 
-References remain `art/gen_herald_poses.jpg` and the existing `gen_herald_lean.png`, `gen_herald_point.png`, `gen_herald_mad.png` (verified PNG headers: 800×720 RGBA). Existing source attribution is Gemini image model via Tyler; exact original model/prompt and license grant are not recorded. No new model receipt or license is asserted. See `evidence/SA-028d-art-result.md` for the exact missing capability and required handoff. New grips/anchors and comparison image await actual authorized image output; old sprites are preserved.
+| Raw generated image (1024×1024 JPEG) | Deterministic RGBA cutout (1024×1024) |
+|---|---|
+| `art/sa028d/gen_herald_nopaper_lean.jpg` | `public/assets/gen_herald_nopaper_lean.png` |
+| `art/sa028d/gen_herald_nopaper_point.jpg` | `public/assets/gen_herald_nopaper_point.png` |
+| `art/sa028d/gen_herald_nopaper_mad.jpg` | `public/assets/gen_herald_nopaper_mad.png` |
+
+`art/sa028d/*-receipt.json` records actual endpoint/model, reference hashes, full prompts and output hashes; `generate.py` records the bounded three-request route without embedded credentials. `cutout.py` removes only border-connected near-white pixels; `cutout-metrics.json` records alpha bounds and cream-component measurements. This is generated raster art, not procedural substitute character art. Original art and dirty evidence are preserved. No new license grant is inferred; original reference exact model/prompt/license remain unrecorded.
+
+**Not visually accepted:** only the incoming attachments were natively visible. No tool exposes newly generated pixels to this session. Empty hands, exact character/style consistency, closed white islands, clean edges and usable semantic grip anchors must be checked natively on `evidence/SA-028d-herald-comparison.png` before release. Cream-region centroids are measurements, NOT verified hand anchors. The existing loader automatically discovers these filenames and already labels them `replacement-unreviewed`; no runtime edits were made. See `evidence/SA-028d-art-result.md` for technical checks and remaining acceptance gates.
 
 ## Спрайты в игре (`public/assets/`)
 

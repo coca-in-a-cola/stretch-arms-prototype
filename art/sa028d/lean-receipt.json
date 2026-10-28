@@ -1,0 +1,32 @@
+{
+  "endpoint": "https://agy.mice.zone/v1/chat/completions",
+  "requested_model": "gemini-3.1-flash-image",
+  "http_status": "200",
+  "curl_exit": 0,
+  "reference_path": "public/assets/gen_herald_lean.png",
+  "reference_sha256": "31c12d86ed03bd36fcea61f3a015e7a978f6545facc7ccf49da670977b7ca04f",
+  "submitted_white_composite_sha256": "0f7c5d06458e223ab14c337d5754f1151836a67c7413d836c512373f76be0a02",
+  "reference_dimensions": [
+    800,
+    720
+  ],
+  "prompt": "EDIT THE ATTACHED EXACT ORIGINAL CHARACTER, do not invent or substitute any character. This is a vintage 1930s rubberhose black rooster/crow town crier, NOT a medieval human herald. Keep precisely his black feather body and tail, large orange beak, red comb, battered charcoal bowler hat, teal waistcoat, red bow tie, cream gloves, short brown cigar and thick imperfect vintage ink contours. Keep original flat muted colors and subtle aged texture. Same three-quarter facing right upper-body composition. REMOVE THE ENTIRE PAPER SHEET. Redraw complete naturally shaped gloves and arms where the sheet used to be. The hands must be visibly empty with clean WHITE BACKGROUND visible between them. Absolutely NO paper, scroll, sign, rectangle, placard, writing, text, caption or extra props. Do not erase the character or simplify him to a generic mascot. Single isolated complete upper-body rooster including tail, hat and all fingers, generous blank margin on every side, on perfectly pure white background, no shadow or floor. Match the attached pose except for the empty hands. Friendly forward lean, smiling and talking. Both empty cream-gloved hands extended to the right, one upper and one lower, separated by open air, presenting empty space.",
+  "response_model": "gemini-3.1-flash-image",
+  "response_id": "chatcmpl-dfa8a770-387b-46eb-b7ad-5f617b673fbf",
+  "raw_path": "art/sa028d/gen_herald_nopaper_lean.jpg",
+  "raw_sha256": "d5bfe164f937c53767a438f759ee9d71c3a479984a3dbdb8de28a0896807cafe",
+  "raw_dimensions": [
+    1024,
+    1024
+  ],
+  "raw_format": "JPEG",
+  "usage": {
+    "prompt_tokens": 515,
+    "completion_tokens": 328,
+    "total_tokens": 2688,
+    "completion_tokens_details": {
+      "reasoning_tokens": 1845
+    }
+  },
+  "visual_acceptance": "PENDING: no native generated-image viewing tool exposed"
+}

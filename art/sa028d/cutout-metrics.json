@@ -1,0 +1,374 @@
+{
+  "lean": {
+    "png": "public/assets/gen_herald_nopaper_lean.png",
+    "dimensions": [
+      1024,
+      1024
+    ],
+    "sha256": "3f968aeb7a562a46087a9bf11e1fd2c76bb24cd2bd201bce496abe6b898e7f25",
+    "alpha_bbox": [
+      22,
+      134,
+      993,
+      961
+    ],
+    "transparent_pixels": 691101,
+    "opaque_pixels": 357475,
+    "cream_region_candidates_NOT_verified_hands": [
+      {
+        "pixels": 23865,
+        "centroid": [
+          829.11,
+          388.75
+        ],
+        "bbox": [
+          725,
+          257,
+          967,
+          468
+        ]
+      },
+      {
+        "pixels": 16118,
+        "centroid": [
+          726.25,
+          840.04
+        ],
+        "bbox": [
+          620,
+          780,
+          883,
+          887
+        ]
+      },
+      {
+        "pixels": 6657,
+        "centroid": [
+          429.73,
+          429.88
+        ],
+        "bbox": [
+          394,
+          369,
+          478,
+          502
+        ]
+      },
+      {
+        "pixels": 3079,
+        "centroid": [
+          934.06,
+          410.33
+        ],
+        "bbox": [
+          885,
+          383,
+          983,
+          444
+        ]
+      },
+      {
+        "pixels": 2194,
+        "centroid": [
+          837.88,
+          821.67
+        ],
+        "bbox": [
+          784,
+          807,
+          893,
+          840
+        ]
+      },
+      {
+        "pixels": 2186,
+        "centroid": [
+          518.38,
+          411.4
+        ],
+        "bbox": [
+          498,
+          369,
+          541,
+          468
+        ]
+      },
+      {
+        "pixels": 1422,
+        "centroid": [
+          360.31,
+          599.21
+        ],
+        "bbox": [
+          342,
+          547,
+          407,
+          648
+        ]
+      },
+      {
+        "pixels": 1214,
+        "centroid": [
+          807.59,
+          798.59
+        ],
+        "bbox": [
+          767,
+          787,
+          854,
+          816
+        ]
+      }
+    ],
+    "accepted_hand_anchors": null,
+    "visual_acceptance": "pending native image review"
+  },
+  "point": {
+    "png": "public/assets/gen_herald_nopaper_point.png",
+    "dimensions": [
+      1024,
+      1024
+    ],
+    "sha256": "0fcbb4b001af48ae742975b2a9a2c13c8862946546feb7e457eba84745e88f57",
+    "alpha_bbox": [
+      115,
+      40,
+      967,
+      1002
+    ],
+    "transparent_pixels": 706900,
+    "opaque_pixels": 341676,
+    "cream_region_candidates_NOT_verified_hands": [
+      {
+        "pixels": 15929,
+        "centroid": [
+          535.42,
+          566.52
+        ],
+        "bbox": [
+          442,
+          491,
+          658,
+          644
+        ]
+      },
+      {
+        "pixels": 15259,
+        "centroid": [
+          810.77,
+          673.3
+        ],
+        "bbox": [
+          723,
+          579,
+          916,
+          764
+        ]
+      },
+      {
+        "pixels": 7054,
+        "centroid": [
+          815.25,
+          469.69
+        ],
+        "bbox": [
+          768,
+          406,
+          866,
+          531
+        ]
+      },
+      {
+        "pixels": 4620,
+        "centroid": [
+          897.94,
+          424.22
+        ],
+        "bbox": [
+          847,
+          380,
+          958,
+          481
+        ]
+      },
+      {
+        "pixels": 4033,
+        "centroid": [
+          479.98,
+          227.02
+        ],
+        "bbox": [
+          451,
+          179,
+          526,
+          277
+        ]
+      },
+      {
+        "pixels": 2052,
+        "centroid": [
+          881.34,
+          715.2
+        ],
+        "bbox": [
+          842,
+          683,
+          915,
+          749
+        ]
+      },
+      {
+        "pixels": 1667,
+        "centroid": [
+          444.69,
+          408.74
+        ],
+        "bbox": [
+          423,
+          361,
+          499,
+          444
+        ]
+      },
+      {
+        "pixels": 1209,
+        "centroid": [
+          882.09,
+          495.62
+        ],
+        "bbox": [
+          853,
+          475,
+          910,
+          511
+        ]
+      }
+    ],
+    "accepted_hand_anchors": null,
+    "visual_acceptance": "pending native image review"
+  },
+  "mad": {
+    "png": "public/assets/gen_herald_nopaper_mad.png",
+    "dimensions": [
+      1024,
+      1024
+    ],
+    "sha256": "bcc61cadd5981e84b3d95b74a19e992fd2475da2d2af5dc7edbcdc29aec09dbf",
+    "alpha_bbox": [
+      119,
+      77,
+      984,
+      1002
+    ],
+    "transparent_pixels": 662324,
+    "opaque_pixels": 386252,
+    "cream_region_candidates_NOT_verified_hands": [
+      {
+        "pixels": 23395,
+        "centroid": [
+          368.24,
+          635.22
+        ],
+        "bbox": [
+          279,
+          533,
+          477,
+          756
+        ]
+      },
+      {
+        "pixels": 18871,
+        "centroid": [
+          859.41,
+          273.3
+        ],
+        "bbox": [
+          741,
+          141,
+          976,
+          368
+        ]
+      },
+      {
+        "pixels": 2734,
+        "centroid": [
+          906.98,
+          196.93
+        ],
+        "bbox": [
+          868,
+          155,
+          942,
+          246
+        ]
+      },
+      {
+        "pixels": 2095,
+        "centroid": [
+          595.16,
+          313.1
+        ],
+        "bbox": [
+          572,
+          279,
+          626,
+          346
+        ]
+      },
+      {
+        "pixels": 1664,
+        "centroid": [
+          603.18,
+          550.08
+        ],
+        "bbox": [
+          582,
+          525,
+          629,
+          593
+        ]
+      },
+      {
+        "pixels": 548,
+        "centroid": [
+          577.29,
+          393.72
+        ],
+        "bbox": [
+          563,
+          383,
+          593,
+          406
+        ]
+      },
+      {
+        "pixels": 537,
+        "centroid": [
+          608.12,
+          401.21
+        ],
+        "bbox": [
+          594,
+          388,
+          625,
+          413
+        ]
+      },
+      {
+        "pixels": 506,
+        "centroid": [
+          693.43,
+          298.57
+        ],
+        "bbox": [
+          683,
+          277,
+          702,
+          322
+        ]
+      }
+    ],
+    "accepted_hand_anchors": null,
+    "visual_acceptance": "pending native image review"
+  }
+}

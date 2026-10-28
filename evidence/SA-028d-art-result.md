@@ -1,32 +1,42 @@
-# SA-028d — herald no-paper art route preflight
+# SA-028d — real reference-image generation receipt
 
-Status: **BLOCKED before generation**. No replacement sprite was generated or accepted. Webdev must not treat the existing paper-bearing sprites as no-paper replacements.
+Status: **generation succeeded; technical assets produced; visual acceptance and semantic grip anchors remain OPEN**. Supersedes the earlier preflight blocker. Do not publish or describe these as visually accepted sprites.
 
-## Exact missing capability
+## Actual route and provenance
 
-This delegated session has no exposed authorized remote image-generation/edit tool or approved image-generation runner accepting reference pixels. Deferred tool discovery for image generation and vision returned no matching tools; only session search, process management and task-list sources are connected. No native image-viewing tool is exposed either.
+Exactly three requests, all HTTP 200, to `https://agy.mice.zone/v1/chat/completions`; requested and returned model `gemini-3.1-flash-image`. No paid/fallback provider or local inference. Each individual old pose PNG was white-composited and sent as actual base64 PNG `image_url` input with the full edit prompt. Credential `antigravity-api-key` was loaded internally from the registered protected file through an inherited pipe used as curl's header-file interface; no key appeared in argv, output, request files or committed files. No credentials/config/services were modified.
 
-The loaded `animation-and-graphics-pipeline-v2` skill recommends `gemini-3.1-flash-image` via Antigravity. That is a recommendation, **not a verified available model route**. A bounded executable check found no `antigravity`, `gemini`, or `imagegen` command. Project `tools/` contains only `cut_sprites.py`, a deterministic existing-sheet cutter, not a generation runner.
+The initial attached DevOps proof was natively inspected beside the original attached lean asset: the proof was a medieval human with a red hat and heraldic costume, whereas the original is a black rooster/crow with red comb, charcoal bowler, orange beak, teal vest, red bow tie, cream gloves and cigar. That proof was rejected, not adapted or shipped. Original pose-specific rooster pixels were used instead.
 
-A safe existing infrastructure report at `/opt/agents/migration/gemini-media-rollout/ACCEPTANCE-REPORT.md` describes real image/video **analysis** using `https://agy.mice.zone/v1/chat/completions`, requested model `gemini-3.8-flash-high`, returned route `custom:gemini-media-gateway`. It does not prove image output or support for `gemini-3.1-flash-image`. An unauthenticated GET of `https://agy.mice.zone/v1/models` returned **HTTP 401**; its body was not read. Thus no supported image-output model, authorized reference-edit request, or image response schema could be verified here. Credentials remain parent authority; no secret files, token values, dumps or protected backups were read.
+Raw outputs and exact per-request provenance:
+- `art/sa028d/gen_herald_nopaper_lean.jpg`, `art/sa028d/lean-receipt.json`
+- `art/sa028d/gen_herald_nopaper_point.jpg`, `art/sa028d/point-receipt.json`
+- `art/sa028d/gen_herald_nopaper_mad.jpg`, `art/sa028d/mad-receipt.json`
 
-Required unblock: parent exposes an already-authorized native image-generation/edit tool or approved runner with exact supported image-output model and reference-image input contract, or runs the reference edit under parent-held authorization and returns original image bytes plus sanitized actual model/route receipt. Verify the requested image model explicitly; no paid-provider fallback or silent model substitution is authorized.
+All raw images are actual 1024×1024 JPEGs decoded using strict base64 validation. Receipts include reference/output SHA-256, actual model, prompt, response ID and dimensions. No new license grant is asserted.
 
-## Known project references (preserved)
+## Delivered PNGs and measured alpha geometry
 
-- `/home/tyler/workspaces/stretch-arms-prototype/art/gen_herald_poses.jpg` — existing 2×2 herald reference sheet. ASSETS.md records Gemini image model via Tyler; original exact model, prompt and license grant are not recorded.
-- `/home/tyler/workspaces/stretch-arms-prototype/public/assets/gen_herald_lean.png`
-- `/home/tyler/workspaces/stretch-arms-prototype/public/assets/gen_herald_point.png`
-- `/home/tyler/workspaces/stretch-arms-prototype/public/assets/gen_herald_mad.png`
+All are **1024×1024 RGBA**; origin is top-left; alpha bounds use exclusive right/bottom coordinates.
 
-All three existing PNG headers were inspected: **800×720, PNG color type 6 (RGBA)**. No native visual inspection was possible in this session; the character description comes from existing provenance, not a newly viewed image: vintage rubber-hose crow/rooster in bowler with cigar stub. Preserve character, ink weight, palette and lean/point/mad acting through image-conditioned generation.
+| PNG | Alpha bounds | Transparent pixels | Opaque pixels |
+|---|---|---:|---:|
+| `public/assets/gen_herald_nopaper_lean.png` | (22,134)–(993,961) | 691101 | 357475 |
+| `public/assets/gen_herald_nopaper_point.png` | (115,40)–(967,1002) | 706900 | 341676 |
+| `public/assets/gen_herald_nopaper_mad.png` | (119,77)–(984,1002) | 662324 | 386252 |
 
-## Intended handoff after unblock
+These are not opaque full-frame white rectangles. `art/sa028d/cutout.py` deterministically removes border-connected RGB≥235 white and applies a 3×3 median to the alpha mask. It does not redraw anatomy. Enclosed white islands and fringe quality still need native review. Square source framing is preserved rather than pretending these are registered to the old 800×720 framing.
 
-Create new `public/assets/gen_herald_nopaper_lean.png`, `gen_herald_nopaper_point.png`, and `gen_herald_nopaper_mad.png`; preserve old sprites. Reference-conditioned outputs must contain no paper, sign or text in either hand, retain matching anatomy/costume/scale across poses, and become clean alpha cutouts. Preserve original model output, prompt and sanitized actual model/route receipt under task-specific `art/` paths. Record source/model/license honestly in ASSETS.md; do not infer a license from the old generic Gemini attribution.
+`art/sa028d/cutout-metrics.json` contains measured cream-color component centroids/bounds. **These are not verified hands or grip anchors**: color segmentation also detects eyes/shirt and cannot prove anatomy. No accepted hand anchor or common semantic character pivot is asserted without viewing the generated pixels. This requested acceptance criterion remains incomplete.
 
-Measure actual resulting canvas dimensions, common character pivot, wrist/grip coordinates and scene-sheet corners in sprite pixels (top-left origin), with normalized coordinates for webdev. **No replacement anchors are supplied now:** inventing grips before valid pixels exist would misalign the future separately rendered in-scene paper. Existing canvas size alone does not establish hand positions. Native-inspect generated sprites beside references, create a labeled reference-vs-new comparison PNG, and provide real PNG handles before acceptance.
+Comparison: **`evidence/SA-028d-herald-comparison.png`**, 1200×930, original poses left, new cutouts right, explicitly labeled unreviewed. No native tool for opening newly generated images is exposed in this session. Initial attachment vision does not imply final-image vision. Empty hands, preserved silhouette/costume, no text/paper, inter-pose consistency and scene alignment remain unverified. Parent must attach this sheet and the PNGs to a native image-capable review before release.
 
-## Scope and verification
+## Runtime and verification
 
-No runtime source edits, image synthesis, procedural redraw, local inference, paid fallback, token handling, profile/config changes, publish or branch changes occurred. Existing dirty browser evidence was left untouched. No `gen_herald_nopaper_*` files, comparison image, generation receipt or accepted attachment anchors exist from this attempt. Only this report and an ASSETS.md blocker note are task deliverables. The art dependency remains open.
+`src/heraldView.ts` was read, not modified. It discovers exactly `gen_herald_nopaper_lean.png`, `gen_herald_nopaper_point.png`, `gen_herald_nopaper_mad.png` via `import.meta.glob`, selects them when present, and sets `replacement-unreviewed`. The sheet remains independently rendered in its own canvas, composited into the shared scene canvas. Existing hardcoded grip fractions do NOT establish alignment with the new images.
+
+After assets: `bun run build` succeeded (TypeScript + Vite; existing large-chunk warning). Initial `bun test`: 261 pass / 2 fail, 263 tests. Failures were the exact runtime-PNG inventory snapshot and missing ASSETS.md entries. Documentation has now been added; final rerun should leave the inventory-snapshot failure only. No test/runtime source was changed because this assignment authorizes art and task documentation only. The inventory must explicitly add the three new PNG names in a separate authorized source/test change; do not hide that failure or claim a green suite.
+
+Reproduction uses the existing Pillow environment: `/home/tyler/workspaces/character-benchmark/steward/.venv/bin/python art/sa028d/cutout.py`. Default/project Python lacked Pillow; no packages were installed. Existing Bun is `/home/tyler/.bun/bin/bun`. `generate.py` refuses existing output targets to avoid unintended extra requests. Pillow dynamic-mode type-check diagnostics and a getdata deprecation warning do not prevent real execution.
+
+Scope: old source art, old sprites and foreign dirty evidence preserved. No runtime/source edits, main switch, push, publish, install, service or profile changes. Delivered artifacts are candidates, not final visual approval.
