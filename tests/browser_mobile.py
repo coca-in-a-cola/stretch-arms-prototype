@@ -10,7 +10,7 @@ from threading import Thread
 from playwright.sync_api import sync_playwright, Page
 
 ROOT = Path(__file__).resolve().parents[1]
-EVIDENCE = ROOT / 'evidence' / 'sa028-regression'
+EVIDENCE = ROOT / 'evidence' / 'sa028c-browser'
 
 
 @contextmanager
@@ -188,6 +188,36 @@ def test_desktop_regression(browser, url: str, errors: list[str]) -> None:
     ctx.close()
 
 
+def assert_held_retention(page: Page, held: str, picked_id: int) -> None:
+    retained = page.evaluate('''() => {
+        const c = document.querySelector('#scene'), r = c.getBoundingClientRect();
+        const enemies = window.__interaction.actors().filter(t => ['enemy','thug'].includes(t.kind));
+        let empty;
+        for (let y = r.top + 20; y < r.bottom - 20 && !empty; y += 20)
+            for (let x = r.left + 40; x < r.right - 40; x += 20)
+                if (window.__interaction.shot(x,y).kind === 'whiff'
+                    && enemies.every(t => !t.center || Math.hypot(t.center.x-x,t.center.y-y) > 180)) {
+                    empty = {x,y}; break;
+                }
+        if (!empty) throw new Error('No live empty-space retention target');
+        const send = (type,id) => c.dispatchEvent(new PointerEvent(type, {
+            pointerId:id,pointerType:'touch',clientX:empty.x,clientY:empty.y,bubbles:true,cancelable:true
+        }));
+        const before = {held:c.dataset.held, strike:c.dataset.strike, flights:window.__interaction.flights().map(f=>f.id)};
+        send('pointerdown',40); send('pointerup',40); send('pointerup',40);
+        const release = c.dataset.held;
+        send('pointerdown',41); send('pointercancel',41); send('pointerup',41);
+        return {before, release, cancelled:c.dataset.held, touching:c.dataset.touching,
+            strike:c.dataset.strike, flights:window.__interaction.flights().map(f=>f.id),
+            actorIds:window.__interaction.actors().map(t=>t.id)};
+    }''')
+    assert retained['before']['held'] == retained['release'] == retained['cancelled'] == held, retained
+    assert retained['touching'] == 'false' and retained['strike'] == retained['before']['strike'], retained
+    assert retained['flights'] == retained['before']['flights'], retained
+    assert picked_id not in retained['actorIds'], f'Held actor must not remain pickable: {retained}'
+    print('SA028 held empty-release/cancel retention:', json.dumps(retained), flush=True)
+
+
 def test_touch_prop_grab_and_throw(browser, url: str, errors: list[str]) -> None:
     ctx = browser.new_context(viewport={'width': 844, 'height': 390}, is_mobile=True, has_touch=True)
     page = ctx.new_page()
@@ -207,6 +237,23 @@ def test_touch_prop_grab_and_throw(browser, url: str, errors: list[str]) -> None
     initial_held = page.evaluate('document.querySelector("#scene").dataset.held || ""')
     assert initial_held == '', f'Initially held should be empty, got {initial_held}'
 
+    enemy = page.wait_for_function('''() => {
+        const r = document.querySelector('#scene').getBoundingClientRect();
+        const e = window.__interaction.actors().find(t => t.kind === 'enemy' && t.at
+            && t.at.x > r.left + 32 && t.at.x < r.right - 32 && t.at.y > r.top && t.at.y < r.bottom
+            && window.__interaction.shot(t.at.x, t.at.y).id === t.id);
+        if (!e) return false;
+        const canvas = document.querySelector("#scene");
+        canvas.dispatchEvent(new PointerEvent('pointerdown', { pointerId: 10, pointerType: 'touch', clientX: e.at.x - 30, clientY: e.at.y, bubbles: true }));
+        canvas.dispatchEvent(new PointerEvent('pointermove', { pointerId: 10, pointerType: 'touch', clientX: e.at.x, clientY: e.at.y, bubbles: true }));
+        const strike = JSON.parse(canvas.dataset.strike || '{}');
+        canvas.dispatchEvent(new PointerEvent('pointerup', { pointerId: 10, pointerType: 'touch', clientX: e.at.x, clientY: e.at.y, bubbles: true }));
+        return { ...e, strike };
+    }''', timeout=10000).json_value()
+    punch_strike = enemy['strike']
+    assert punch_strike.get('action') == 'punch' and punch_strike.get('outcome') == 'hit' and punch_strike.get('id') == enemy['id'], f'Empty hand drag across enemy must hit with punch, got {punch_strike}'
+    assert page.evaluate('document.querySelector("#scene").dataset.held || ""') == ''
+
     prop = page.wait_for_function('''() => {
         const r = document.querySelector('#scene').getBoundingClientRect();
         const p = window.__interaction.actors().find(t =>
@@ -215,8 +262,8 @@ def test_touch_prop_grab_and_throw(browser, url: str, errors: list[str]) -> None
             && window.__interaction.shot(t.at.x, t.at.y).id === t.id);
         if (!p) return false;
         const canvas = document.querySelector("#scene");
-        for (const [type, x] of [['pointerdown', p.at.x], ['pointermove', p.at.x], ['pointerup', p.at.x]])
-            canvas.dispatchEvent(new PointerEvent(type, { pointerId: 10, pointerType: 'touch', clientX: x, clientY: p.at.y, bubbles: true }));
+        for (const [type, x] of [['pointerdown', p.at.x - 24], ['pointermove', p.at.x], ['pointermove', p.at.x], ['pointerup', p.at.x], ['pointerup', p.at.x]])
+            canvas.dispatchEvent(new PointerEvent(type, { pointerId: 11, pointerType: 'touch', clientX: x, clientY: p.at.y, bubbles: true }));
         return { ...p, held: canvas.dataset.held, mode: document.querySelector('#app').dataset.mode, strike: canvas.dataset.strike };
     }''', timeout=10000).json_value()
 
@@ -225,155 +272,124 @@ def test_touch_prop_grab_and_throw(browser, url: str, errors: list[str]) -> None
     held_prop = page.evaluate('document.querySelector("#scene").dataset.held')
     assert held_prop == prop['kind'], f'Expected held {prop["kind"]}, got {held_prop}'
 
-    page.wait_for_timeout(80)
-    page.evaluate('''p => {
-        const canvas = document.querySelector('#scene');
-        for (const type of ['pointerdown', 'pointerup']) canvas.dispatchEvent(new PointerEvent(type, {
-            pointerId: 10, pointerType: 'touch', clientX: p.x, clientY: p.y, bubbles: true, cancelable: true
-        }));
-    }''', prop['at'])
-    assert page.evaluate('document.querySelector("#scene").dataset.held') == held_prop, 'Pickup must not count as first throw tap'
-
     page.wait_for_function('window.__interaction.arms().right.item !== ""')
     arms = page.evaluate('window.__interaction.arms()')
     assert arms['right']['item'] == held_prop and arms['right']['open'], f'Right arm must draw held item, got {arms}'
+    assert_held_retention(page, held_prop, prop['id'])
 
-    enemy = page.wait_for_function('''() => {
+    prop2 = page.wait_for_function('''firstId => {
+        const r = document.querySelector('#scene').getBoundingClientRect();
+        const p = window.__interaction.actors().find(t =>
+            ['whiskey', 'mug', 'eggs', 'bottle', 'keg', 'stool', 'spittoon', 'shaker'].includes(t.kind)
+            && t.id !== firstId && t.at && t.at.x > r.left + 32 && t.at.x < r.right - 32 && t.at.y > r.top && t.at.y < r.bottom
+            && window.__interaction.shot(t.at.x, t.at.y).id === t.id);
+        if (!p) return false;
+        const canvas = document.querySelector("#scene");
+        canvas.dispatchEvent(new PointerEvent('pointerdown', { pointerId: 12, pointerType: 'touch', clientX: p.at.x - 24, clientY: p.at.y, bubbles: true }));
+        canvas.dispatchEvent(new PointerEvent('pointermove', { pointerId: 12, pointerType: 'touch', clientX: p.at.x, clientY: p.at.y, bubbles: true }));
+        canvas.dispatchEvent(new PointerEvent('pointerup', { pointerId: 12, pointerType: 'touch', clientX: p.at.x, clientY: p.at.y, bubbles: true }));
+        return { ...p, held: canvas.dataset.held, flights: window.__interaction.flights(), strike: JSON.parse(canvas.dataset.strike || '{}') };
+    }''', arg=prop['id'], timeout=10000).json_value()
+
+    assert prop2['held'] == prop2['kind'], f'Expected held new prop {prop2["kind"]}, got {prop2["held"]}'
+    assert any(f['kind'] == held_prop for f in prop2['flights']), f'Old prop {held_prop} must be thrown in flight: {prop2}'
+    assert len(prop2['flights']) == 1, f'Swap must launch exactly one old item: {prop2}'
+    assert prop2['strike']['id'] == prop2['id'] and prop2['strike']['outcome'] == 'grab', prop2
+    assert_held_retention(page, prop2['kind'], prop2['id'])
+    page.wait_for_function('id => !window.__interaction.flights().some(f => f.id === id)', arg=prop2['flights'][0]['id'], timeout=10000)
+
+    thrown = page.wait_for_function('''() => {
         const r = document.querySelector('#scene').getBoundingClientRect();
         const e = window.__interaction.actors().find(t => t.kind === 'enemy' && t.at
             && t.at.x > r.left + 32 && t.at.x < r.right - 32 && t.at.y > r.top && t.at.y < r.bottom
             && window.__interaction.shot(t.at.x, t.at.y).id === t.id);
         if (!e) return false;
         const canvas = document.querySelector("#scene");
-        canvas.dispatchEvent(new PointerEvent('pointerdown', { pointerId: 11, pointerType: 'touch', clientX: e.at.x - 32, clientY: e.at.y, bubbles: true }));
-        canvas.dispatchEvent(new PointerEvent('pointermove', { pointerId: 11, pointerType: 'touch', clientX: e.at.x, clientY: e.at.y, bubbles: true }));
-        return { ...e, strike: JSON.parse(canvas.dataset.strike || '{}') };
+        // A nearby prop is a legitimate swap contact, not a duplicate throw.
+        // Find a clean live sweep so this case isolates carrying -> enemy.
+        const start = [{x:e.at.x-40,y:e.at.y},{x:e.at.x+40,y:e.at.y},{x:e.at.x,y:e.at.y-40}].find(p => {
+            if (!['whiff','cover'].includes(window.__interaction.shot(p.x,p.y).kind)) return false;
+            return [1/3,2/3,1].every(t => {
+                const hit = window.__interaction.shot(p.x+(e.at.x-p.x)*t,p.y+(e.at.y-p.y)*t);
+                return ['whiff','cover'].includes(hit.kind) || hit.id === e.id;
+            });
+        });
+        if (!start) return false;
+        canvas.dispatchEvent(new PointerEvent('pointerdown', { pointerId: 13, pointerType: 'touch', clientX: start.x, clientY: start.y, bubbles: true }));
+        canvas.dispatchEvent(new PointerEvent('pointermove', { pointerId: 13, pointerType: 'touch', clientX: e.at.x, clientY: e.at.y, bubbles: true }));
+        const flights = window.__interaction.flights();
+        const strike = JSON.parse(canvas.dataset.strike || '{}');
+        canvas.dispatchEvent(new PointerEvent('pointerup', { pointerId: 13, pointerType: 'touch', clientX: e.at.x, clientY: e.at.y, bubbles: true }));
+        canvas.dispatchEvent(new PointerEvent('pointerup', { pointerId: 13, pointerType: 'touch', clientX: e.at.x, clientY: e.at.y, bubbles: true }));
+        return { target: e, flights, strike, held: canvas.dataset.held, afterDuplicate:window.__interaction.flights() };
     }''', timeout=10000).json_value()
-    last_strike = enemy['strike']
-    assert last_strike.get('action') == 'punch' and last_strike.get('outcome') == 'hit' and last_strike.get('id') == enemy['id'], f'Drag across enemy must hit with punch, got {last_strike}'
-    page.wait_for_function('window.__interaction.arms().left.mode === "touch"')
-    arms = page.evaluate('window.__interaction.arms()')
-    assert arms['left']['item'] == '' and not arms['left']['open'], arms
-    rect = page.locator('#scene').bounding_box()
-    assert rect
-    assert math.hypot(arms['left']['x'] + rect['x'] - enemy['at']['x'], arms['left']['y'] + rect['y'] - enemy['at']['y']) < 1, arms
-    assert arms['right']['mode'] == 'rest' and arms['right']['item'] == held_prop and arms['right']['open'], arms
-    page.screenshot(path=str(EVIDENCE / 'sa027-held-dual-arm.png'))
-    page.evaluate('''p => document.querySelector('#scene').dispatchEvent(new PointerEvent('pointerup', {
-        pointerId: 11, pointerType: 'touch', clientX: p.x, clientY: p.y, bubbles: true
-    }))''', enemy['at'])
 
-    still_held = page.evaluate('document.querySelector("#scene").dataset.held')
-    assert still_held == held_prop, f'Ordinary horizontal drag must not throw! Expected {held_prop}, got {still_held}'
-    flights_before_throw = int(page.evaluate('document.querySelector("#scene").dataset.flights || "0"'))
-    assert flights_before_throw == 0, f'Expected 0 active flights before throw, got {flights_before_throw}'
+    throw_strike = thrown['strike']
+    assert throw_strike.get('action') == 'grab' and throw_strike.get('outcome') == 'throw' and throw_strike.get('kind') == 'flight', f'Sweep across enemy with prop held must throw, got {throw_strike}'
+    page.wait_for_function('document.querySelector("#scene").dataset.held === ""', timeout=5000)
+    after_throw_held = page.evaluate('document.querySelector("#scene").dataset.held')
+    assert after_throw_held == '', f'Held item must be cleared after throw, got {after_throw_held}'
+    assert len(thrown['flights']) == len(thrown['afterDuplicate']) == 1, thrown
+    flight = thrown['flights'][0]
+    assert flight['id'] == throw_strike['id'] == thrown['afterDuplicate'][0]['id'] and flight['kind'] == prop2['kind'], thrown
+    page.wait_for_function('id => !window.__interaction.flights().some(f => f.id === id)', arg=flight['id'], timeout=10000)
+
+    prop3 = page.wait_for_function('''() => {
+        const r = document.querySelector('#scene').getBoundingClientRect();
+        const p = window.__interaction.actors().find(t =>
+            ['whiskey', 'mug', 'eggs', 'bottle', 'keg', 'stool', 'spittoon', 'shaker'].includes(t.kind)
+            && t.at && t.at.x > r.left + 32 && t.at.x < r.right - 32 && t.at.y > r.top && t.at.y < r.bottom
+            && window.__interaction.shot(t.at.x, t.at.y).id === t.id);
+        if (!p) return false;
+        const canvas = document.querySelector("#scene");
+        for (const [type, x] of [['pointerdown', p.at.x], ['pointermove', p.at.x], ['pointerup', p.at.x]])
+            canvas.dispatchEvent(new PointerEvent(type, { pointerId: 14, pointerType: 'touch', clientX: x, clientY: p.at.y, bubbles: true }));
+        return { ...p, held: canvas.dataset.held };
+    }''', timeout=10000).json_value()
+    assert prop3['held'] != ''
+    assert_held_retention(page, prop3['kind'], prop3['id'])
+
+    release_throw = page.wait_for_function('''() => {
+        const r = document.querySelector('#scene').getBoundingClientRect();
+        const e = window.__interaction.actors().find(t => t.kind === 'enemy' && t.at
+            && t.at.x > r.left + 32 && t.at.x < r.right - 32 && t.at.y > r.top && t.at.y < r.bottom
+            && window.__interaction.shot(t.at.x, t.at.y).id === t.id);
+        if (!e) return false;
+        const canvas = document.querySelector("#scene");
+        let start;
+        for (let y=r.top+20; y<r.bottom-20 && !start; y+=20)
+            for (let x=r.left+40; x<r.right-40; x+=20)
+                if (window.__interaction.shot(x,y).kind === 'whiff') {start={x,y}; break;}
+        if (!start) return false;
+        canvas.dispatchEvent(new PointerEvent('pointerdown', { pointerId: 15, pointerType: 'touch', clientX: start.x, clientY: start.y, bubbles: true }));
+        const beforeRelease = {held:canvas.dataset.held,flights:window.__interaction.flights()};
+        canvas.dispatchEvent(new PointerEvent('pointerup', { pointerId: 15, pointerType: 'touch', clientX: e.at.x, clientY: e.at.y, bubbles: true }));
+        const flights = window.__interaction.flights(), strike = JSON.parse(canvas.dataset.strike || '{}');
+        for (const type of ['pointerup','click','dblclick']) canvas.dispatchEvent(new PointerEvent(type, {
+            pointerId:15,pointerType:'touch',clientX:e.at.x,clientY:e.at.y,bubbles:true}));
+        return { target: e, beforeRelease, flights, strike, afterDuplicate:window.__interaction.flights() };
+    }''', timeout=10000).json_value()
+    rel_strike = release_throw['strike']
+    assert rel_strike.get('action') == 'grab' and rel_strike.get('outcome') == 'throw' and rel_strike.get('kind') == 'flight', f'Release over enemy must throw, got {rel_strike}'
+    assert release_throw['beforeRelease']['held'] == prop3['kind'] and not release_throw['beforeRelease']['flights'], release_throw
+    assert len(release_throw['flights']) == len(release_throw['afterDuplicate']) == 1, release_throw
+    assert release_throw['flights'][0]['id'] == rel_strike['id'] == release_throw['afterDuplicate'][0]['id'], release_throw
+    page.wait_for_function('document.querySelector("#scene").dataset.held === ""', timeout=5000)
 
     page.evaluate('''() => {
         const canvas = document.querySelector("#scene");
-        canvas.dispatchEvent(new PointerEvent("pointerdown", { pointerId: 12, pointerType: "touch", clientX: 200, clientY: 200, bubbles: true }));
+        canvas.dispatchEvent(new PointerEvent("pointerdown", { pointerId: 16, pointerType: "touch", clientX: 200, clientY: 200, bubbles: true }));
     }''')
     assert page.evaluate('document.querySelector("#scene").dataset.touching') == 'true'
     page.evaluate('''() => {
         const canvas = document.querySelector("#scene");
-        canvas.dispatchEvent(new PointerEvent("pointercancel", { pointerId: 12, pointerType: "touch", clientX: 200, clientY: 200, bubbles: true }));
+        canvas.dispatchEvent(new PointerEvent("pointercancel", { pointerId: 16, pointerType: "touch", clientX: 200, clientY: 200, bubbles: true }));
     }''')
     assert page.evaluate('document.querySelector("#scene").dataset.touching') == 'false'
-    assert page.evaluate('document.querySelector("#scene").dataset.held') == held_prop
-    assert int(page.evaluate('document.querySelector("#scene").dataset.flights')) == 0
     page.wait_for_function('window.__interaction.arms().left.mode === "rest"')
 
-    preserved = page.evaluate('''async () => {
-        const canvas = document.querySelector('#scene');
-        const rect = canvas.getBoundingClientRect();
-        const send = (type, x, y) => canvas.dispatchEvent(new PointerEvent(type, {
-            pointerId: 14, pointerType: 'touch', clientX: rect.left + x / 844 * rect.width, clientY: rect.top + y / 390 * rect.height, bubbles: true, cancelable: true
-        }));
-        send('pointerdown', 350, 260);
-        send('pointerup', 350, 260);
-        const single = canvas.dataset.held;
-        send('pointerdown', 350, 260);
-        send('pointermove', 350, 180);
-        send('pointerup', 350, 180);
-        const upward = canvas.dataset.held;
-        send('pointerdown', 400, 380);
-        send('pointerup', 400, 380);
-        await new Promise(resolve => setTimeout(resolve, 80));
-        send('pointerdown', 400, 380);
-        send('pointercancel', 400, 380);
-        send('pointerup', 400, 380);
-        send('pointerdown', 400, 380);
-        send('pointerup', 400, 380);
-        const cancelled = canvas.dataset.held;
-        await new Promise(resolve => setTimeout(resolve, 80));
-        send('pointerdown', 460, 380);
-        send('pointerup', 460, 380);
-        const distant = canvas.dataset.held;
-        await new Promise(resolve => setTimeout(resolve, 400));
-        send('pointerdown', 460, 380);
-        send('pointerup', 460, 380);
-        const late = canvas.dataset.held;
-        send('pointerdown', 460, 380);
-        send('pointercancel', 460, 380);
-        return { single, upward, cancelled, distant, late, flights: window.__interaction.flights() };
-    }''')
-    assert all(preserved[key] == held_prop for key in ['single', 'upward', 'cancelled', 'distant', 'late']) and not preserved['flights'], preserved
-
-    thrown = page.wait_for_function('''async () => {
-        const r = document.querySelector('#scene').getBoundingClientRect();
-        const e = window.__interaction.actors().find(t => t.kind === 'enemy' && t.at
-            && t.center.x > r.left && t.center.x < r.right && t.center.y > r.top && t.center.y < r.bottom - 32
-            && window.__interaction.shot(t.at.x, t.at.y).id === t.id);
-        if (!e) return false;
-        const x = e.center.x, y = e.center.y + 10;
-        const canvas = document.querySelector("#scene");
-        const send = type => canvas.dispatchEvent(new PointerEvent(type, { pointerId: 13, pointerType: 'touch', clientX: x, clientY: y, bubbles: true, cancelable: true }));
-        send('pointerdown');
-        send('pointerup');
-        const afterSingle = canvas.dataset.held;
-        await new Promise(resolve => setTimeout(resolve, 80));
-        const fresh = window.__interaction.actors().find(t => t.id === e.id && t.at
-            && window.__interaction.shot(t.at.x, t.at.y).id === t.id);
-        if (!fresh || Math.hypot(fresh.center.x - x, fresh.center.y - y) > 140) return false;
-        send('pointerdown');
-        send('pointerup');
-        const flights = window.__interaction.flights();
-        canvas.dispatchEvent(new MouseEvent('click', { clientX: x, clientY: y, bubbles: true }));
-        canvas.dispatchEvent(new MouseEvent('dblclick', { clientX: x, clientY: y, bubbles: true }));
-        send('pointerup');
-        const result = { target: fresh, end: { x, y }, afterSingle, flights, afterDuplicate: window.__interaction.flights(), strike: JSON.parse(canvas.dataset.strike || '{}') };
-        result.evolved = await new Promise(resolve => {
-            const start = performance.now();
-            const poll = () => {
-                const f = window.__interaction.flights().find(f => f.id === flights[0]?.id && f.age > 0 && f.vel.y !== 0);
-                if (f) resolve(f);
-                else if (performance.now() - start > 2000) resolve(null);
-                else requestAnimationFrame(poll);
-            };
-            requestAnimationFrame(poll);
-        });
-        return result;
-    }''', timeout=10000).json_value()
-
-    page.wait_for_function('document.querySelector("#scene").dataset.held === ""', timeout=5000)
-    after_throw_held = page.evaluate('document.querySelector("#scene").dataset.held')
-    assert after_throw_held == '', f'Held item must be cleared after throw, got {after_throw_held}'
-
-    throw_strike = thrown['strike']
-    assert throw_strike.get('action') == 'grab' and throw_strike.get('outcome') == 'throw' and throw_strike.get('kind') == 'flight', f'Expected flight throw strike, got {throw_strike}'
-    assert len(thrown['flights']) == 1, thrown
-    assert thrown['afterSingle'] == held_prop and len(thrown['afterDuplicate']) == 1, thrown
-    flight = thrown['flights'][0]
-    assert flight['id'] == throw_strike['id'] and flight['kind'] == held_prop and flight['age'] == 0, thrown
-    target = thrown['target']['world']
-    duration = (target['z'] - flight['pos']['z']) / flight['vel']['z']
-    assert duration > 0 and math.hypot(thrown['target']['center']['x'] - thrown['end']['x'], thrown['target']['center']['y'] - thrown['end']['y']) < 150, thrown
-    assert abs(flight['pos']['x'] + flight['vel']['x'] * duration - target['x']) < 1e-6, thrown
-    assert abs(flight['pos']['y'] + flight['vel']['y'] * duration - 4.75 * duration ** 2 - target['y']) < 1e-6, thrown
-    assert thrown['evolved'] and thrown['evolved']['id'] == flight['id'] and thrown['evolved']['age'] > 0 and thrown['evolved']['vel']['y'] != 0, thrown
-    page.wait_for_function('id => !window.__interaction.flights().some(f => f.id === id)', arg=flight['id'], timeout=10000)
-    assert page.evaluate('document.querySelector("#scene").dataset.touching') == 'false'
-    page.screenshot(path=str(EVIDENCE / 'sa027-after-double-tap.png'))
-    print('SA027 confirmed grab, active drawn arms, punch, single/drag/upward/cancel retention, one local double-tap ballistic throw:', json.dumps({'prop': prop['kind'], 'punch': last_strike, 'arms': arms, 'throw': thrown}), flush=True)
+    page.screenshot(path=str(EVIDENCE / 'sa028-touch-lifecycle.png'))
+    print('SA028 touch lifecycle verified (punch on empty hand sweep, grab on prop sweep, prop swap throw+grab, throw on enemy sweep or release):', json.dumps({'punch': punch_strike, 'firstGrab': prop['kind'], 'swap': prop2['kind'], 'throw': throw_strike, 'releaseThrow': rel_strike}), flush=True)
     ctx.close()
 
 
@@ -392,7 +408,7 @@ def main() -> None:
         test_landscape_915x412(browser, url, errors)
         print('Testing desktop regression (mouse, F8/W autowin, resize)...')
         test_desktop_regression(browser, url, errors)
-        print('Testing touch prop grab, active drawn arms, cancel reset, and local double-tap throw (SA-027)...')
+        print('Testing touch prop grab, active drawn arms, cancel reset, and SA-028 touch lifecycle...')
         test_touch_prop_grab_and_throw(browser, url, errors)
         browser.close()
 
