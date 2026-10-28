@@ -86,6 +86,8 @@ describe('colour logic: grey world, colour means interactive', () => {
       'gen_rat_appear.png', 'gen_rat_attack.png', 'gen_rat_ko.png', 'gen_gang_appear.png', 'gen_gang_attack.png', 'gen_gang_ko.png', 'gen_kid_appear.png', 'gen_kid_attack.png', 'gen_kid_ko.png',
       // SA-V4-18: the briefing herald and his blank flyers (aged paper, chroma boosted so it reads as colour).
       'gen_herald_lean.png', 'gen_herald_point.png', 'gen_herald_mad.png',
+      // SA-028: reference-edited sheet-free sources; inventory is not visual approval.
+      'gen_herald_nopaper_lean.png', 'gen_herald_nopaper_point.png', 'gen_herald_nopaper_mad.png',
       'gen_flyer_tall.png', 'gen_flyer_tag.png', 'gen_flyer_taped.png', 'gen_flyer_wide.png', 'gen_flyer_pinned.png'].sort());
   });
   for (const f of backdrops) test(`${f}: painted backdrop is pure grey world`, () => {
