@@ -30,6 +30,12 @@
 | `art/gen_mole_poses.jpg` | лист крота: вылез из кучи земли / выглядывает с фонарём / обижен (SA-V4-17) | Gemini image model (сгенерировал Tyler); промпт не записан |
 | `art/gen_thugs_poses.jpg` | лист мелкой шпаны 3×3: строки — крыса-карманник, голубь из банды, мальчишка с рогаткой; столбцы — появился / атакует / нокаут (SA-V4-17) | Gemini image model (сгенерировал Tyler); промпт не записан |
 
+## SA-028d: no-paper herald regeneration — blocked
+
+No `gen_herald_nopaper_*` replacements were generated. The delegated artist session exposes no authorized image-generation/edit tool or approved generation runner. The skill's suggested `gemini-3.1-flash-image` via Antigravity is not a verified supported route; an unauthenticated gateway model-catalogue probe returned HTTP 401. Existing media acceptance proves analysis only, not image output. No paid fallback, credential access or procedural substitute was used.
+
+References remain `art/gen_herald_poses.jpg` and the existing `gen_herald_lean.png`, `gen_herald_point.png`, `gen_herald_mad.png` (verified PNG headers: 800×720 RGBA). Existing source attribution is Gemini image model via Tyler; exact original model/prompt and license grant are not recorded. No new model receipt or license is asserted. See `evidence/SA-028d-art-result.md` for the exact missing capability and required handoff. New grips/anchors and comparison image await actual authorized image output; old sprites are preserved.
+
 ## Спрайты в игре (`public/assets/`)
 
 Все вырезаны Claude скриптом `tools/cut_sprites.py` из цветных листов; кропы те же, что для ч/б листов (раскладка совпала, проверено глазами по контактному листу).
