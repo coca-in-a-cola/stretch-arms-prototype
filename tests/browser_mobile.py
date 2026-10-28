@@ -10,7 +10,7 @@ from threading import Thread
 from playwright.sync_api import sync_playwright, Page
 
 ROOT = Path(__file__).resolve().parents[1]
-EVIDENCE = ROOT / 'evidence' / 'sa028c-browser'
+EVIDENCE = ROOT / 'evidence' / 'sa028e-mobile'
 
 
 @contextmanager
@@ -125,7 +125,9 @@ def test_landscape_844x390(browser, url: str, errors: list[str]) -> None:
     page.locator('#start').tap()
     page.locator('#level1').tap()
 
-    page.wait_for_timeout(400)
+    page.wait_for_function('document.querySelector("#herald").dataset.phase === "show" && !!JSON.parse(document.querySelector("#herald").dataset.geometry || "{}").paper', timeout=20000)
+    assert page.locator('#herald .hd-canvas').is_visible()
+    assert page.locator('#herald .hd-flyer').count() == 0, 'No visible DOM flyer'
     page.screenshot(path=str(EVIDENCE / 'sa027-tutorial-844x390.png'))
     skip_briefing_if_active(page, touch=True)
 

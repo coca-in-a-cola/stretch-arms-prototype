@@ -1197,7 +1197,12 @@ function sweepTouchSegment(x0: number, y0: number, x1: number, y1: number) {
     if (game.briefing) {
       const hitRes = herald.hit(pt.x, pt.y);
       if (hitRes === 'flyer') {
+        // Reduced motion advances immediately: one contact must not consume several sheets
+        // through pointerdown/move/up in the same sweep.
+        const contactTime = performance.now() / 1000; // game.elapsed is frozen throughout briefings
+        if (!hitCooldowns.canHit('herald-flyer', contactTime)) break;
         const res = game.briefPunch('flyer');
+        if (res === 'tear') hitCooldowns.recordHit('herald-flyer', contactTime);
         if (res === 'tear') { sound('flop'); if (motion()) { shake = .06; hitstop = .04; } }
         renderUi();
         break;
