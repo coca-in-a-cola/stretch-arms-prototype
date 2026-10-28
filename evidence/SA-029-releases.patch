@@ -1,0 +1,27 @@
+--- a/releases.html
++++ b/releases.html
+@@ -78,14 +78,21 @@
+         </div>
+         <div class="search"><label for="search">ПОИСК ПО ВЕРСИИ И МЕХАНИКАМ</label><input id="search" type="search" placeholder="Например: глашатай, бар, r7" autocomplete="off"></div>
+       </div>
+-      <p id="count" role="status" aria-live="polite" aria-atomic="true">На связи: 11 сборок</p>
++      <p id="count" role="status" aria-live="polite" aria-atomic="true">На связи: 12 сборок</p>
+       <div class="grid">
+         <article class="card latest" data-kind="latest">
+-          <div class="version"><span>latest / r13-contact-hands</span><span>● актуальная сборка</span></div>
++          <div class="version"><span>latest / r14-hitboxes</span><span>● актуальная сборка</span></div>
+           <h2>Весь двор в твоих руках</h2>
+           <ul class="badges" aria-label="Особенности"><li class="badge">Бар + Улица</li><li class="badge">Ближний бой</li><li class="badge">Полоски HP</li><li class="badge">Мирные NPC</li><li class="badge">Ульта со шляпой</li><li class="badge">Демо-режим</li></ul>
+-          <p>Актуальная сборка r13-contact-hands: проводка при контакте бьёт врага или подбирает предмет. С предметом проведи по врагу и отпусти палец для броска; контакт с другим предметом меняет предмет в руке. Фиксированная сцена 16:9, HUD и кнопки в боковых полях. Глашатай и листовка рисуются на сценическом canvas; новые позы без встроенной бумаги, дефектная указующая поза отключена. Управление ПК сохранено.</p>
++          <p>Актуальная сборка r14-hitboxes: без автонаведения и доведения траектории. Только у задир и шпаны хитбоксы шире и выше в 1,2 раза; луч и снаряд используют одинаковые границы, укрытия и ближние персонажи перекрывают дальних. На телефоне проведи с предметом по врагу или отпусти над ним — бросок в точку контакта; в пустоте предмет остаётся в руке. Шляпу возьми со стула и отпусти над столешницей стойки — полёт, приземление вверх дном, вступление и ульта. Управление ПК сохранено.</p>
+           <a class="launch" href="./" aria-label="Запустить latest — актуальную сборку">[ЗАПУСТИТЬ →]<small>ТЕКУЩИЙ РАЗМАХ</small></a>
++        </article>
++        <article class="card" data-kind="archive">
++          <div class="version"><span>r14-hitboxes</span><span>14 / честные хитбоксы</span></div>
++          <h2>Без магнитов — прямо в цель</h2>
++          <ul class="badges" aria-label="Особенности"><li class="badge">Без автонаведения</li><li class="badge">Хитбоксы задир ×1,2</li><li class="badge">Шляпа на стойке</li><li class="badge">Контактные руки</li></ul>
++          <p>Бросок следует точке контакта, а не центру или ближайшему врагу. Только враждебные хитбоксы шире и выше на 20%, без увеличения глубины; укрытия и мирные персонажи не увеличены. Шляпу на телефоне можно отпустить над настоящей столешницей — она приземляется вверх дном и запускает ульту. Контактная проводка, смена предметов и управление ПК сохранены.</p>
++          <a class="launch" href="r14-hitboxes/" aria-label="Запустить r14-hitboxes">[ЗАПУСТИТЬ →]</a>
+         </article>
+         <article class="card" data-kind="archive">
+           <div class="version"><span>r13-contact-hands</span><span>13 / контактные руки</span></div>
